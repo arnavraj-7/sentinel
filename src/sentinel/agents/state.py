@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 from enum import StrEnum
 from operator import add
-from typing import Annotated
+from typing import Annotated, NotRequired
 from uuid import uuid4
 
 from pydantic import BaseModel, Field
@@ -38,15 +38,28 @@ def _new_incident_id() -> str:
     return f"inc_{uuid4().hex[:12]}"
 
 
-class IncidentState(TypedDict):
-    """Shared state threaded through the graph.
+class FailureCategory(StrEnum):
+    MEMORY_LEAK = "memory_leak"
+    CRASH_LOOP = "crash_loop"
+    LATENCY_SPIKE = "latency_spike"
+    SURGE_5xx = "surge_5xx"
+    DB_POOL_EXHAUSTION = "db_pool_exhaustion"
+    CERT_EXPIRY = "cert_expiry"
+    UNKNOWN = "unknown"
 
-    Using TypedDict (LangGraph's recommended state type) with Pydantic
-    models as values gives us both reducer support and strict validation
-    at API boundaries.
-    """
+
+class TriagerFindings(BaseModel):
+    failure_category: FailureCategory
+    summary: str
+    affected_services: list[str]
+    recommended_actions: list[str]
+
+
+class IncidentState(TypedDict):
+    """Shared state threaded through the graph."""
 
     incident_id: str
     input: IncidentInput
     notes: Annotated[list[AgentNote], add]
+    triager_findings: NotRequired[TriagerFindings | None]
     done: bool

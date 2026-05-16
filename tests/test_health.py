@@ -1,3 +1,4 @@
+import pytest
 from httpx import AsyncClient
 
 
@@ -7,10 +8,12 @@ async def test_health_returns_ok(client: AsyncClient) -> None:
     assert response.json() == {"status": "ok"}
 
 
+@pytest.mark.integration
 async def test_incident_endpoint_runs_graph(client: AsyncClient) -> None:
+    """Requires: lab server running on localhost:8000 and valid GCP credentials."""
     payload = {
         "alert_id": "a-http-1",
-        "service": "checkout",
+        "service": "api-gateway",
         "message": "latency p95 > 2s",
         "severity": "high",
     }
