@@ -75,6 +75,7 @@ class CritiqueResult(BaseModel):
 
 
 
+
 class IncidentState(TypedDict):
     """Shared state threaded through the graph."""
 
@@ -86,4 +87,5 @@ class IncidentState(TypedDict):
     root_cause_findings:NotRequired[RootCauseFindings | None]
     critique: NotRequired[CritiqueResult | None]
     revision_count: NotRequired[int]
+    human_decision: NotRequired[str]
     done: bool

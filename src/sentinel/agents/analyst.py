@@ -139,14 +139,14 @@ def after_critic_routing(state: IncidentState) -> str:
     revision_count = state.get("revision_count",0)
     if(revision_count >= _MAX_REVISIONS):
         log.info("after_critic_routing.max_revisions_reached", incident_id=state["incident_id"], revision_count=revision_count)
-        return "finalize"  # stop if we've already done 2 revisions
+        return "human_approval"  # stop if we've already done 2 revisions
     critic = state.get("critique")
     if critic is None:
         log.warning("after_critic_routing.missing_critique", incident_id=state["incident_id"])
-        return "finalize"  # safety check: if no critique, end the graph
+        return "human_approval"  # safety check: if no critique, end the graph
     if critic.approved:
         log.info("after_critic_routing.approved", incident_id=state["incident_id"])
-        return "finalize"  # if approved, we're done
+        return "human_approval"  # if approved, we're done
     else:
         log.info("after_critic_routing.rejected", incident_id=state["incident_id"], feedback=critic.feedback)
         return "root_cause_analyst"  # if rejected, loop back for another revision
