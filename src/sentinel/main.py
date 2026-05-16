@@ -17,6 +17,7 @@ from sentinel.api.health import router as health_router  # noqa: E402
 from sentinel.api.incidents import router as incidents_router  # noqa: E402
 from sentinel.checkpoint.sqlite import open_checkpointer  # noqa: E402
 from sentinel.config import settings  # noqa: E402
+from sentinel.lab.routes import router as lab_router  # noqa: E402
 from sentinel.logging import configure_logging, log  # noqa: E402
 
 
@@ -34,3 +35,4 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 app = FastAPI(title="Sentinel", version="0.1.0", lifespan=lifespan)
 app.include_router(health_router)
 app.include_router(incidents_router)
+app.include_router(lab_router)
