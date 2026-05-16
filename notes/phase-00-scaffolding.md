@@ -528,6 +528,67 @@ async with (
 **Symptom:** `AttributeError: 'State' object has no attribute 'graph'`
 **Fix:** Wrap in `asgi_lifespan.LifespanManager(app)` in the fixture. This is why we added `asgi-lifespan` to dev deps.
 
+### ❌ `pydantic-settings` does NOT leak `.env` keys into `os.environ`
+**Symptom:** `.env` file had `LANGSMITH_API_KEY=...` and `LANGSMITH_TRACING=true`, but LangSmith dashboard stayed empty. No errors. Tests still green. App ran normally.
+
+**Root cause:** `pydantic-settings` reads the `.env` file **only to populate fields declared on the `Settings` class**. Any other keys in the file are completely ignored — they do NOT reach `os.environ`. The `langsmith` SDK reads `LANGSMITH_*` directly from `os.environ`, so it never sees the values.
+
+**Fix:** Call `python-dotenv`'s `load_dotenv()` at application startup **before importing anything that reads env vars**:
+```python
+# src/sentinel/main.py — top of file, before any other imports
+from dotenv import load_dotenv
+load_dotenv()
+
+# then the rest of the imports (with noqa: E402 because ruff hates imports after code)
+from fastapi import FastAPI  # noqa: E402
+...
+```
+And add `python-dotenv>=1.0` to `[project.dependencies]` in `pyproject.toml`.
+
+**Why this is a "production-grade" gotcha worth remembering:** `load_dotenv()` must run **before the first import of any module that reads env vars on import**. The `langsmith` SDK checks `LANGSMITH_*` at import time to decide whether to initialize its background trace uploader — if those vars aren't in `os.environ` at that moment, tracing is permanently disabled for the process even if you set them later. This is a classic gotcha with env-var-driven SDKs.
+
+### ⚠️⚠️⚠️ Why the green tests DIDN'T catch the missing `.env`
+
+This is the most important lesson of Phase 0 — write it on the wall.
+
+**Question:** If the `.env` file was missing and LangSmith never received a trace, why did all 4 tests pass?
+
+**Three layered reasons:**
+
+**1. LangSmith fails silently by design.**
+The `langsmith` SDK is built so that if tracing is misconfigured, the app keeps working. No exceptions, no warnings. This is *deliberate* — you don't want your app to crash at 3am because Datadog is down. So missing API key → silent drop → no signal.
+
+**2. Our tests don't check whether a trace was sent.**
+
+| Test | What it asserts | Touches LangSmith? |
+|---|---|---|
+| `test_triager_node_produces_note_and_marks_done` | Graph output is correct | No |
+| `test_graph_checkpoint_persists_across_second_invocation` | State survives across calls | No |
+| `test_health_returns_ok` | `/health` returns 200 | No |
+| `test_incident_endpoint_runs_graph` | POST returns correct JSON | No |
+
+Tests only verify what they assert. Silent failures (missing logs/metrics/traces) slip past green test runs constantly in real production.
+
+**3. Tests don't even need `.env`.**
+Every `Settings` field has a default, so a missing `.env` is silently accepted. Tests use in-memory SQLite (`:memory:`), so they never touch disk paths. The whole test suite is *isolated* from real environment config — a feature for speed/determinism, but a gap for config-related bugs.
+
+**The production lesson — three tiers of testing:**
+
+| Tier | What it checks | Speed |
+|---|---|---|
+| **Unit** | Pure logic with mocks | Milliseconds |
+| **Integration** | Real deps in-process (our current tests) | Seconds |
+| **Smoke** | Real deployed env, real external services | Minutes |
+
+A smoke test for this bug would be: "after deploy, POST an incident, then query the LangSmith API for a trace with that incident_id — fail if not found within 30s." That's the level of rigor that catches "traces aren't being emitted."
+
+**Three silent failures to watch for in every AI project (memorize these):**
+1. **Observability drops** — traces/metrics/logs not emitted. Caught only by smoke tests or manual verification.
+2. **LLM fallthrough** — provider returns empty string or malformed JSON, code keeps running with bad data. Caught by schema validation + output evals.
+3. **RAG retrieval returns nothing** — search returns 0 docs, agent hallucinates from "general knowledge." Caught by retrieval-hit assertions in evals.
+
+Sentinel will hit all three at some point. Instinctively ask "what's the silent failure mode?" for every new component.
+
 ---
 
 ## 7. INTERVIEW Q&A
@@ -558,6 +619,26 @@ async with (
 
 ### Q: Why did mypy require 4 generic type parameters on `CompiledStateGraph`?
 **A:** In LangGraph 1.x, `CompiledStateGraph` is `Generic[StateT, ContextT, InputT, OutputT]`. Under mypy strict mode (`disallow_any_generics` implied by `strict = true`), any generic must be parametrized. I aliased it as `IncidentGraph = CompiledStateGraph[IncidentState, Any, IncidentState, IncidentState]` so the 4-param signature doesn't spread through the codebase.
+
+### Q: Your tests passed but LangSmith tracing was broken. How does that happen, and how do you prevent it?
+**A:** Three reasons it happened:
+
+1. **LangSmith fails silently by design** — missing API key → no trace → no error. This is correct behavior for observability infrastructure (you don't want your app to crash because your tracing provider is down), but it means misconfiguration can't be caught by a crash test.
+2. **The tests didn't assert anything about LangSmith** — they checked graph output, checkpointing, and HTTP responses. None of those touch LangSmith, so LangSmith can be completely broken and all tests still pass.
+3. **Tests used in-memory SQLite and default Settings** — they didn't even *need* a `.env` file, so "missing `.env`" wasn't a test-breaking condition.
+
+How to prevent it: add a **smoke test tier** on top of unit + integration tests. A smoke test runs against a real deployed environment and verifies end-to-end — including "did a trace actually show up in LangSmith within 30 seconds." The general rule: for any component that can fail silently (observability, caching, async message publishing), you need an affirmative test that the signal was actually received on the other side, not just that your code called the API.
+
+Three silent failure modes to watch for in every AI project:
+- **Observability drops** (no traces, metrics, or logs emitted)
+- **LLM fallthrough** (empty or malformed response, code keeps running with bad data)
+- **RAG returns zero results** (agent answers from "general knowledge" and hallucinates)
+
+### Q: Why does `load_dotenv()` have to run before importing other modules?
+**A:** Many SDKs — including `langsmith` — read their config env vars **at import time**, not at first use. If `LANGSMITH_API_KEY` isn't in `os.environ` when `langsmith` gets imported, it decides tracing is disabled and that decision is permanent for the process. Even if you set the var later, the SDK has already initialized in "no tracing" mode. So `load_dotenv()` has to be the very first thing that touches the environment, before any `from langsmith...` import chain runs. That's why we put it at the top of `main.py` with `# noqa: E402` on the subsequent imports — ruff hates code-before-imports but this is the correct production pattern.
+
+### Q: Why doesn't `pydantic-settings` handle the LangSmith env vars automatically if it's already reading `.env`?
+**A:** Because `pydantic-settings` only cares about fields *declared on the Settings class*. It reads `.env` line by line and asks "is this key a field on Settings? If yes, set it. If no, ignore." `LANGSMITH_API_KEY` isn't a field on our `Settings` class (it's consumed by a third-party SDK), so `pydantic-settings` reads the line and drops it. The keys never reach `os.environ`. Two ways to fix: (a) add `LANGSMITH_*` as fields on Settings and manually push them to `os.environ` at startup, or (b) use `python-dotenv`'s `load_dotenv()` which pushes *every* key from `.env` into `os.environ` regardless. Option (b) is simpler and is what we did.
 
 ---
 

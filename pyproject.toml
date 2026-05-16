@@ -13,6 +13,7 @@ dependencies = [
     "langsmith>=0.2",
     "structlog>=24.4",
     "httpx>=0.28",
+    "python-dotenv>=1.0",
 ]
 
 [project.optional-dependencies]
