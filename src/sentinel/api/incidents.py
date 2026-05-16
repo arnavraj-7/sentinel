@@ -7,6 +7,7 @@ from sentinel.agents.state import (
     AgentNote,
     IncidentInput,
     IncidentState,
+    InvestigatorFindings,
     TriagerFindings,
     _new_incident_id,
 )
@@ -19,6 +20,7 @@ class IncidentResponse(BaseModel):
     done: bool
     notes: list[AgentNote]
     triager_findings: TriagerFindings | None = None
+    investigator_findings: list[InvestigatorFindings] = []
 
 
 @router.post("", response_model=IncidentResponse)
@@ -38,4 +40,5 @@ async def trigger_incident(payload: IncidentInput, request: Request) -> Incident
         done=final_state["done"],
         notes=final_state["notes"],
         triager_findings=final_state.get("triager_findings"),
+        investigator_findings=final_state.get("investigator_findings", []),
     )

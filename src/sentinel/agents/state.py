@@ -55,6 +55,14 @@ class TriagerFindings(BaseModel):
     recommended_actions: list[str]
 
 
+class InvestigatorFindings(BaseModel):
+    agent: str
+    focus: str
+    summary: str
+    evidence: list[str]
+    confidence: float = Field(ge=0.0, le=1.0)
+
+
 class IncidentState(TypedDict):
     """Shared state threaded through the graph."""
 
@@ -62,4 +70,5 @@ class IncidentState(TypedDict):
     input: IncidentInput
     notes: Annotated[list[AgentNote], add]
     triager_findings: NotRequired[TriagerFindings | None]
+    investigator_findings: Annotated[list[InvestigatorFindings], add]
     done: bool
