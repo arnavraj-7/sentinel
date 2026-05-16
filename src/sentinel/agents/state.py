@@ -61,6 +61,18 @@ class InvestigatorFindings(BaseModel):
     summary: str
     evidence: list[str]
     confidence: float = Field(ge=0.0, le=1.0)
+    
+class RootCauseFindings(BaseModel):
+    root_cause: str
+    contributing_factors: list[str]
+    confidence: float = Field(ge=0.0, le=1.0)
+    recommended_fix: str
+
+class CritiqueResult(BaseModel):
+    approved: bool
+    feedback: str
+    confidence: float = Field(ge=0.0, le=1.0)
+
 
 
 class IncidentState(TypedDict):
@@ -71,4 +83,7 @@ class IncidentState(TypedDict):
     notes: Annotated[list[AgentNote], add]
     triager_findings: NotRequired[TriagerFindings | None]
     investigator_findings: Annotated[list[InvestigatorFindings], add]
+    root_cause_findings:NotRequired[RootCauseFindings | None]
+    critique: NotRequired[CritiqueResult | None]
+    revision_count: NotRequired[int]
     done: bool

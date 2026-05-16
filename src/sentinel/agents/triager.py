@@ -79,5 +79,4 @@ Classify this incident. Base your answer strictly on the data above."""
     return {
         "notes": [note],
         "triager_findings": findings,
-        "done": True,
     }
