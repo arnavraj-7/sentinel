@@ -1,18 +1,10 @@
 from pathlib import Path
 
 from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_google_genai import ChatGoogleGenerativeAI
 
+from sentinel.agents.llm import structured_invoke
 from sentinel.agents.state import AgentNote, IncidentState, PostMortemReport
-from sentinel.config import settings
 from sentinel.logging import log
-
-_llm = ChatGoogleGenerativeAI(
-    model="gemini-2.5-flash",
-    project=settings.google_project,
-    temperature=0,
-)
-_scribe_llm = _llm.with_structured_output(PostMortemReport)
 
 _SCRIBE_SYSTEM = """You are the Post-Mortem Scribe, a senior SRE who writes clear, actionable incident reports.
 
@@ -137,7 +129,7 @@ FULL NOTES TIMELINE:
 
 Write the post-mortem report for this incident."""
 
-    raw: PostMortemReport = await _scribe_llm.ainvoke(
+    raw: PostMortemReport = await structured_invoke(PostMortemReport,
         [SystemMessage(content=_SCRIBE_SYSTEM), HumanMessage(content=user_content)]
     )
 

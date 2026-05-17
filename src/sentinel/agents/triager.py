@@ -1,29 +1,19 @@
-import httpx
-from langchain_google_genai import ChatGoogleGenerativeAI
-
+from sentinel.agents.llm import structured_invoke
 from sentinel.agents.state import AgentNote, FailureCategory, IncidentState, TriagerFindings
-from sentinel.config import settings
+from sentinel.datasource import get_datasource
 from sentinel.logging import log
-
-_llm = ChatGoogleGenerativeAI(
-    model="gemini-2.5-flash",
-    project=settings.google_project,
-    temperature=0,
-)
-
-# Wraps the LLM so it always returns a TriagerFindings object, never raw text.
-_structured_llm = _llm.with_structured_output(TriagerFindings)
 
 
 async def _fetch_context(service: str) -> tuple[dict, list]:  # type: ignore[type-arg]
     """Pull current metrics and recent logs from the simulated lab."""
-    async with httpx.AsyncClient(base_url=settings.lab_base_url, timeout=10.0) as client:
-        metrics = (await client.get(f"/lab/services/{service}/metrics")).json()
-        logs = (await client.get(f"/lab/services/{service}/logs")).json()
+    ds = get_datasource()
+    metrics = await ds.get_metrics(service=service) 
+    logs = await ds.get_logs(service=service, count=20)
     return metrics, logs
 
 
 async def triager_node(state: IncidentState) -> dict[str, object]:
+    
     payload = state["input"]
     log.info("triager.run", incident_id=state["incident_id"], service=payload.service)
 
@@ -60,7 +50,7 @@ VALID FAILURE CATEGORIES
 
 Classify this incident. Base your answer strictly on the data above."""
 
-    findings: TriagerFindings = await _structured_llm.ainvoke(prompt)
+    findings: TriagerFindings = await structured_invoke(TriagerFindings, prompt)
 
     log.info(
         "triager.done",

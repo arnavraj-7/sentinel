@@ -1,25 +1,15 @@
 from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_google_genai import ChatGoogleGenerativeAI
 
+from sentinel.agents.llm import structured_invoke
 from sentinel.agents.state import (
     AgentNote,
     CritiqueResult,
     IncidentState,
     RootCauseFindings,
 )
-from sentinel.config import settings
 from sentinel.logging import log
 
 _MAX_REVISIONS = 2
-
-_llm = ChatGoogleGenerativeAI(
-    model="gemini-2.5-flash",
-    project=settings.google_project,
-    temperature=0,
-)
-
-_analyst_llm = _llm.with_structured_output(RootCauseFindings)
-_critic_llm = _llm.with_structured_output(CritiqueResult)
 
 # ── System prompts ────────────────────────────────────────────────────────────
 
@@ -82,8 +72,9 @@ INVESTIGATOR FINDINGS:
 
 Synthesize all evidence into a definitive root cause."""
 
-    raw: RootCauseFindings = await _analyst_llm.ainvoke(
-        [SystemMessage(content=_ANALYST_SYSTEM), HumanMessage(content=user_content)]
+    raw: RootCauseFindings = await structured_invoke(
+        RootCauseFindings,
+        [SystemMessage(content=_ANALYST_SYSTEM), HumanMessage(content=user_content)],
     )
 
     note = AgentNote(
@@ -121,8 +112,9 @@ ROOT CAUSE ANALYSIS TO REVIEW:
 
 Review this analysis against the evidence. Approve or reject with specific feedback."""
 
-    raw: CritiqueResult = await _critic_llm.ainvoke(
-        [SystemMessage(content=_CRITIC_SYSTEM), HumanMessage(content=user_content)]
+    raw: CritiqueResult = await structured_invoke(
+        CritiqueResult,
+        [SystemMessage(content=_CRITIC_SYSTEM), HumanMessage(content=user_content)],
     )
 
     note = AgentNote(

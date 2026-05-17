@@ -1,19 +1,11 @@
-import httpx
 from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_google_genai import ChatGoogleGenerativeAI
 from pydantic import BaseModel, Field
 
+from sentinel.agents.llm import structured_invoke
 from sentinel.agents.state import AgentNote, IncidentState, InvestigatorFindings
-from sentinel.config import settings
+from sentinel.datasource import get_datasource
+from sentinel.datasource.registry import describe_topology
 from sentinel.logging import log
-
-# ── LLM setup ────────────────────────────────────────────────────────────────
-
-_llm = ChatGoogleGenerativeAI(
-    model="gemini-2.5-flash",
-    project=settings.google_project,
-    temperature=0,
-)
 
 
 class _InvestigatorOutput(BaseModel):
@@ -25,7 +17,6 @@ class _InvestigatorOutput(BaseModel):
     confidence: float = Field(ge=0.0, le=1.0)
 
 
-_structured_llm = _llm.with_structured_output(_InvestigatorOutput)
 
 # ── System prompts — each agent's persona ────────────────────────────────────
 
@@ -42,7 +33,6 @@ Express confidence based on how clearly the metrics point to a specific cause.""
 
 _TOPOLOGY_MAPPER_SYSTEM = """You are the Topology Mapper, an infrastructure dependency specialist.
 Your job: assess the blast radius — which other services are likely affected by this failure.
-Use your knowledge of typical microservice architectures and the service names provided.
 Focus on: likely upstream/downstream dependencies, shared resources, cascading failure risk.
 Express confidence based on how clear the dependency relationships are."""
 
@@ -61,7 +51,7 @@ async def _investigate(
         SystemMessage(content=system_prompt),
         HumanMessage(content=user_content),
     ]
-    raw: _InvestigatorOutput = await _structured_llm.ainvoke(messages)
+    raw: _InvestigatorOutput = await structured_invoke(_InvestigatorOutput, messages)
 
     findings = InvestigatorFindings(agent=agent_name, **raw.model_dump())
     note = AgentNote(
@@ -76,9 +66,9 @@ async def _investigate(
 # ── The three investigator nodes ──────────────────────────────────────────────
 
 async def log_detective_node(state: IncidentState) -> dict[str, object]:
+    ds = get_datasource()
     service = state["input"].service
-    async with httpx.AsyncClient(base_url=settings.lab_base_url, timeout=10.0) as client:
-        logs = (await client.get(f"/lab/services/{service}/logs", params={"count": 20})).json()
+    logs = await ds.get_logs(service=service, count=20)
 
     log_lines = "\n".join(
         f"[{e['ts']}] {e['level']} {e['message']}" for e in logs
@@ -98,9 +88,9 @@ Investigate the logs and return your findings."""
 
 
 async def metric_analyst_node(state: IncidentState) -> dict[str, object]:
+    ds = get_datasource()
     service = state["input"].service
-    async with httpx.AsyncClient(base_url=settings.lab_base_url, timeout=10.0) as client:
-        metrics = (await client.get(f"/lab/services/{service}/metrics")).json()
+    metrics =await ds.get_metrics(service=service)
 
     triager = state.get("triager_findings")
     context = f"Triager classified this as: {triager.failure_category}" if triager else ""
@@ -123,22 +113,19 @@ Analyse the metrics and return your findings."""
 
 
 async def topology_mapper_node(state: IncidentState) -> dict[str, object]:
-    async with httpx.AsyncClient(base_url=settings.lab_base_url, timeout=10.0) as client:
-        all_services = (await client.get("/lab/services")).json()
+    
+
 
     service = state["input"].service
     triager = state.get("triager_findings")
     context = f"Triager classified this as: {triager.failure_category}" if triager else ""
-
-    service_summary = "\n".join(
-        f"  {s['name']}: {s['failure_mode']}" for s in all_services
-    )
+    topology = describe_topology(service)
+    
 
     user_content = f"""Failing service: {service}
 {context}
 
-ALL SERVICES AND THEIR CURRENT STATE:
-{service_summary}
+Topology of the system:{topology}
 
 Alert message: {state['input'].message}
 
