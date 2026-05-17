@@ -344,31 +344,179 @@ snapshot.values["notes"]
 
 ---
 
-## 7. Async Python — Bare Minimum
+## 7. Sync vs Async — In Depth (interview-critical)
 
-FastAPI and LangGraph are both async. You need to understand this.
+### Ground-up primer (read this FIRST — kitchen analogy)
 
-```python
-# sync — blocks the whole server while waiting
-def get_data():
-    response = requests.get(url)   # thread is frozen here
-    return response.json()
+Build the words bottom-up before any depth:
 
-# async — yields control while waiting, other requests can run
-async def get_data():
-    response = await httpx_client.get(url)   # control goes back to event loop
-    return response.json()
-```
+- **Computer** = a restaurant building.
+- **Process** = one kitchen with its **own private pantry** (own memory). Two processes
+  don't share memory; one crashing doesn't kill the other. `python main.py` = one kitchen.
+- **Thread** = one cook **inside** a kitchen. A kitchen can have many cooks; all cooks in
+  the same kitchen **share that kitchen's pantry** (threads share the process's memory).
+  Different kitchens don't share a pantry.
+- **CPU core** = a stove. A cook needs a stove to actually cook (run code). 4 stoves → 4
+  cooks cook at the same instant; 1 stove → only 1 cooks at a time even if 10 cooks exist.
+- **Parallelism** = many stoves + many cooks working the *same instant* (truly simultaneous).
+- **Concurrency** = one cook *juggling* — start pasta boiling, chop veg while it boils,
+  flip a steak — progress on many dishes by switching, NOT simultaneous.
+- **Synchronous (blocking)** = a cook who puts pasta on and then *stands staring at the pot*
+  for 10 min doing nothing until done. That idle waiting is **I/O** (network/disk/DB wait).
+- **Event loop / async** = one smart cook + a notepad with one rule: *never stand idle — if
+  something's just cooking, note it and go do other ready work*. One cook, one stove, no
+  extra staff — just refuses to waste time during waits.
+- **`await`** = the moment he writes "pasta @ 10:00" on the notepad and turns to another
+  dish: "this part is just waiting — set aside, do other ready work, resume when it signals."
+- **GIL (Global Interpreter Lock)** = the Python kitchen has exactly **one chef's hat**;
+  only the cook wearing it may touch food (run Python bytecode). 10 threads → they pass the
+  one hat around, never two at once → threads don't speed up **CPU** work. **Exception:** a
+  cook just *waiting at the oven* (blocking I/O) isn't touching food, so he **drops the hat**
+  while waiting → other cooks proceed → threads **do** help **I/O** work.
+- **`asyncio.to_thread(fn)`** = hire a side cook (thread) to go hold a dumb no-timer
+  appliance (a blocking library); main cook hands it off, keeps juggling, gets a proper
+  "ring-me-back" object to `await`. The side cook drops the hat while waiting, so nothing
+  freezes.
 
-Rules:
-- `async def` = this function is a coroutine
-- `await` = wait for this coroutine to finish (only valid inside `async def`)
-- All FastAPI route handlers should be `async def`
-- All LangGraph invocations in FastAPI should be `await graph.ainvoke(...)`
+Now the depth:
 
-You don't need to deeply understand the event loop. Just know: `async/await` lets the server
-handle many requests "at the same time" without threads, by switching between them while one
-is waiting for I/O (network, disk).
+### The one problem async exists to solve
+
+A program does two kinds of work:
+- **CPU work** — *computing* (math, parsing, loops). CPU is busy.
+- **I/O work** — *waiting* (network, DB, disk, API). CPU is **idle**, waiting on something external.
+
+A 200ms network call: ~0.1ms is real CPU work, ~199.9ms is the CPU doing **nothing**, waiting
+for bytes. **Async exists to reclaim that wasted waiting time.** Everything else is mechanism.
+
+### Mental model — one waiter in a restaurant
+
+- **Sync waiter:** takes table 1's order → goes to kitchen → *stands there 10 min watching the
+  chef* → serves table 1 → only now goes to table 2. 95% of his time wasted standing idle.
+- **Async waiter:** takes table 1's order → hands to kitchen → *immediately* serves table 2,
+  3, 4… → kitchen signals table 1's food ready → delivers it. One waiter serves everyone
+  because cooking = waiting = time he doesn't need to be involved.
+
+Map: waiter = thread/event loop · tables = tasks · cooking = I/O wait · `await` = "hand to
+kitchen, I'm free until it's done." The async waiter isn't faster at cooking — the food still
+takes 10 min. He just stops wasting *his own* time. **Async doesn't speed up I/O; it stops you
+blocking on it.**
+
+### The event loop
+
+The "single waiter." A loop holding a set of tasks. Runs a task until it `await`s on pending
+I/O → **parks** it → runs the next ready task → when I/O completes the parked task is flagged
+ready → loop resumes it *at the exact line it paused*. One thread, never idle while any task
+can progress. No second thread, no parallelism — just a loop that refuses to wait around.
+
+### `await` — what it actually means (the #1 misconception)
+
+`await x` = "this might block. Event loop: if `x` isn't ready, go run other tasks; resume me
+here when it is."
+
+- **NOT "run in parallel/background."** Sequential by itself: `await a()` then `await b()`
+  runs a fully, then b. Parallelism needs `asyncio.gather(a(), b())`.
+- Only valid inside `async def` (a *coroutine*).
+- **Calling `async def` without `await` runs nothing** — you get a coroutine object that just
+  sits there. Most common async bug ("why didn't my function run?").
+
+### When async helps and when it's useless
+
+- **I/O-bound** (network, DB, files, LLM/API calls) → huge win. Lots of waiting to reclaim.
+  Sentinel's investigators (HTTP + Gemini) are textbook async.
+- **CPU-bound** (image processing, crunching, ML inference) → async does **nothing**; no
+  waiting to exploit. Worse: a heavy CPU loop in async **freezes the whole event loop**. Use
+  multiple processes/cores instead.
+- **The blocking trap:** calling a *synchronous blocking* function inside async —
+  `time.sleep()`, a sync DB driver, the `google-cloud-logging` client — freezes the entire
+  loop; every concurrent task stalls. Fix: `await asyncio.to_thread(blocking_fn, args)` to
+  offload it to a worker thread. (This is exactly why `GCPDataSource.get_logs` wraps the
+  sync Cloud Logging client in `to_thread`.)
+
+### Which languages are sync vs async
+
+No language is "an async language" — every language runs top-to-bottom by default. Async is
+a concurrency model layered on:
+
+| Language | Model |
+|---|---|
+| **JavaScript** | Async to the core. Single-threaded, event loop **built into the runtime**. Designed so UI never freezes. |
+| **Python** | Sync-first. Async is **opt-in** via `asyncio` + `async/await`. GIL ⇒ threads don't help CPU; asyncio is the I/O answer. |
+| **Go** | Goroutines — green threads + runtime scheduler. Write *sync-looking* concurrent code, no explicit `await`. |
+| **C#** | `async/await`, Task-based. Nearly identical to Python's model. |
+| **Rust** | `async/await`, you pick the runtime (tokio). |
+| **Java** | Threads historically; now virtual threads (Project Loom). |
+
+**Soundbite:** *"Sync vs async isn't a property of the language, it's a concurrency model.
+JS is single-threaded event-loop async by design; Python is sync-first with an opt-in
+asyncio loop; Go uses runtime-scheduled goroutines instead of await."*
+
+### Concurrency vs Parallelism (they WILL ask)
+
+- **Concurrency** = *dealing with* many things at once, interleaved on one worker (one waiter,
+  ten tables). Structure.
+- **Parallelism** = *doing* many things at the same instant, multiple workers (ten waiters).
+  Execution.
+
+async/event loop = **concurrency, not parallelism**. True parallelism needs multiple
+cores/threads/processes. **Soundbite (Rob Pike):** *"Concurrency is about structure;
+parallelism is about execution."*
+
+### Interview Q&A
+
+- **Sync vs async in one sentence?** Sync blocks at each I/O call doing nothing; async yields
+  during the wait so one thread progresses other tasks.
+- **Does async make code faster?** Only I/O-bound, and only by overlapping the *waiting* —
+  never speeds a single op. CPU-bound gets zero benefit.
+- **What is the event loop?** Single-threaded loop that runs tasks until they `await` pending
+  I/O, parks them, runs others, resumes them when I/O completes.
+- **Does `await` run things in parallel?** No — it's a suspension point. Sequential unless
+  you `gather`.
+- **Why is JS single-threaded but non-blocking?** Built-in event loop + all I/O async by
+  design, so the one thread never blocks.
+- **Blocking sync call inside a coroutine — what happens?** Freezes the whole loop; every
+  task stalls. Fix: offload to thread/process.
+- **What's a coroutine?** An `async def` function that can suspend at `await` and resume
+  later — scheduled by the event loop.
+- **Concurrency vs parallelism?** Concurrency = interleaving on one worker (structure);
+  parallelism = simultaneous workers (execution). Async is concurrency.
+
+### Async-native vs blocking library (why you can't just `await` everything)
+
+"Can I `await` this?" is **not** about API-call vs DB-call. It's about whether *that library*
+speaks async:
+
+- **Async-native** (`httpx.AsyncClient`, `asyncpg`): exposes awaitables; yields to the loop
+  during its network wait. `await` works.
+- **Blocking/sync** (`requests`, `psycopg2`, `google-cloud-logging` client): the thread just
+  stops and waits. Returns a plain value/iterator, **not an awaitable**.
+
+So a DB call may or may not be awaitable — `asyncpg` yes, `psycopg2` no. Two distinct
+problems with a sync client in async code:
+1. **Can't `await` it** — `await sync_call()` → `TypeError: object is not awaitable`.
+2. **Calling it freezes the loop** — the blocking trap.
+
+`asyncio.to_thread(fn, *args)` fixes both: runs `fn` on a worker thread (loop stays free)
+and *itself* returns an awaitable you can `await`.
+
+### The GIL — why threads work here but not for CPU
+
+Python has real OS threads, but the **GIL** lets only **one thread run Python bytecode at a
+time** → threads don't speed up CPU-bound Python. **Exception:** a thread doing blocking I/O
+(or C-extension work) **releases the GIL while waiting**. So a blocked network call in a
+worker thread parks with the GIL released; the event-loop thread keeps running everything
+else. That's precisely why `to_thread` rescues a blocking library.
+
+**Soundbite:** *"Python threads help I/O-bound blocking work because blocking I/O releases
+the GIL; they don't help CPU-bound work because the GIL serializes bytecode — CPU
+parallelism needs multiprocessing."*
+
+### Tie-back to Sentinel
+
+Investigators call HTTP + Cloud Logging + Gemini — all I/O, all waiting → async overlaps it
+all on one thread. `httpx.AsyncClient` is async-native (safe to `await`). The
+`google-cloud-logging` client is **sync** → must be wrapped in `await asyncio.to_thread(...)`
+or it freezes the loop.
 
 ---
 
