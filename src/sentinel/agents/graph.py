@@ -10,6 +10,7 @@ from sentinel.agents.analyst import (
     finalize_node,
     root_cause_analyst_node,
 )
+from sentinel.agents.scribe import post_mortem_node
 from sentinel.agents.executor import (
     after_human_routing,
     executor_node,
@@ -42,6 +43,7 @@ def build_graph(checkpointer: AsyncSqliteSaver) -> IncidentGraph:
     builder.add_node("human_approval", human_approval_node)
     builder.add_node("executor", executor_node)
     builder.add_node("finalize", finalize_node)
+    builder.add_node("post_mortem", post_mortem_node)
 
     # Edges
     builder.add_edge(START, "triager")
@@ -59,6 +61,7 @@ def build_graph(checkpointer: AsyncSqliteSaver) -> IncidentGraph:
     # HITL — human routes to executor (approved) or finalize (rejected)
     builder.add_conditional_edges("human_approval", after_human_routing)
     builder.add_edge("executor", "finalize")
-    builder.add_edge("finalize", END)
+    builder.add_edge("finalize", "post_mortem")
+    builder.add_edge("post_mortem", END)
 
     return builder.compile(checkpointer=checkpointer)

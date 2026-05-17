@@ -27,7 +27,8 @@ class IncidentResponse(BaseModel):
     investigator_findings: list[InvestigatorFindings] = []
     root_cause_findings: RootCauseFindings | None = None
     critique: CritiqueResult | None = None
-    interrupt_payload: dict | None = None  # what the human sees to make the decision
+    interrupt_payload: dict | None = None
+    post_mortem: str | None = None
 
 
 class ApproveInput(BaseModel):
@@ -45,6 +46,7 @@ def _build_response(incident_id: str, state: dict) -> IncidentResponse:
         investigator_findings=state.get("investigator_findings", []),
         root_cause_findings=state.get("root_cause_findings"),
         critique=state.get("critique"),
+        post_mortem=state.get("post_mortem"),
     )
     # Surface what the human needs to review if paused at interrupt()
     if not done and response.root_cause_findings:

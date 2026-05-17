@@ -72,6 +72,18 @@ class CritiqueResult(BaseModel):
     approved: bool
     feedback: str
     confidence: float = Field(ge=0.0, le=1.0)
+    
+
+class PostMortemReport(BaseModel):
+    title: str                       # "Crash Loop in api-gateway"
+    executive_summary: str           # 2-3 sentences for non-technical management
+    timeline: list[str]              # key events in chronological order
+    root_cause: str                  # must match root_cause_findings exactly
+    contributing_factors: list[str]  # from root_cause_findings
+    impact: str                      # which services affected, blast radius
+    resolution: str                  # what was done to fix it
+    prevention_steps: list[str]      # concrete steps to prevent recurrence
+    lessons_learned: list[str]       # specific to this incident, not generic SRE advice
 
 
 
@@ -88,4 +100,5 @@ class IncidentState(TypedDict):
     critique: NotRequired[CritiqueResult | None]
     revision_count: NotRequired[int]
     human_decision: NotRequired[str]
+    post_mortem: NotRequired[str]   
     done: bool
