@@ -12,6 +12,8 @@ _CATEGORY_AGENTS: dict[FailureCategory, list[str]] = {
     FailureCategory.SURGE_5xx:          ["log_detective", "metric_analyst"],
     FailureCategory.DB_POOL_EXHAUSTION: ["metric_analyst", "topology_mapper"],
     FailureCategory.CERT_EXPIRY:        ["metric_analyst", "topology_mapper"],
+    FailureCategory.HIGH_ERROR_RATE:  ["log_detective", "metric_analyst", "topology_mapper"],
+    FailureCategory.DATA_CORRUPTION:  ["log_detective", "metric_analyst"],
     FailureCategory.UNKNOWN:            ["log_detective", "metric_analyst", "topology_mapper"],
 }
 

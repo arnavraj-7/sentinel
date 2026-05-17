@@ -39,6 +39,8 @@ def _new_incident_id() -> str:
 
 
 class FailureCategory(StrEnum):
+    HIGH_ERROR_RATE = "high_error_rate"
+    DATA_CORRUPTION = "data_corruption"
     MEMORY_LEAK = "memory_leak"
     CRASH_LOOP = "crash_loop"
     LATENCY_SPIKE = "latency_spike"

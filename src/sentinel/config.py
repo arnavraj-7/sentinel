@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     checkpoint_db: Path = Path("./data/checkpoints.sqlite")
     google_project: str = "sentinel-496513"
     lab_base_url: str = "http://localhost:8000"
+    datasource:str ="gcp"
 
 
 settings = Settings()

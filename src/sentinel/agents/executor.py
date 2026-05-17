@@ -1,9 +1,10 @@
-import httpx
 from langgraph.types import interrupt
 
 from sentinel.agents.state import AgentNote, IncidentState
 from sentinel.config import settings
 from sentinel.logging import log
+from sentinel.datasource import get_datasource
+
 
 
 def human_approval_node(state: IncidentState) -> dict[str, object]:
@@ -18,11 +19,11 @@ def human_approval_node(state: IncidentState) -> dict[str, object]:
 
 
 async def executor_node(state: IncidentState) -> dict[str, object]:
+    ds = get_datasource()
     service = state["input"].service
     log.info("executor.run", incident_id=state["incident_id"], service=service)
 
-    async with httpx.AsyncClient(base_url=settings.lab_base_url, timeout=10.0) as client:
-        result = (await client.post(f"/lab/services/{service}/heal")).json()
+    result = await ds.heal(service)
 
     note = AgentNote(
         agent="executor",
