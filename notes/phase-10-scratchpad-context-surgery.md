@@ -121,6 +121,116 @@ Phase 10 end-to-end test.
 
 ---
 
-# PART 2 — Context Surgery 🚧 IN PROGRESS
+# PART 2 — Context Surgery ✅
 
-_(Appended when log_detective rework + end-to-end test complete.)_
+## 1. WHY
+
+`log_detective` was doing `get_logs(count=20)` — a blind dump. In the Phase 8 live run its
+evidence was mostly `GET /route 500` access-log noise with the real `fatal: ...` signal
+buried in it. A human SRE greps for errors; they don't read 20 random lines. We give the
+node surgical queries so it sees signal, not noise.
+
+## 2. WHAT — file by file
+
+```
+src/sentinel/datasource/
+├── base.py   ← +2 abstractmethods: get_error_traces, search_logs_regex
+├── lab.py    ← client-side filtering (lab has no query API — must fetch then filter)
+└── gcp.py    ← server-side filtering via Cloud Logging filter strings + _run_query_logs reuse
+src/sentinel/agents/
+└── investigators.py ← log_detective: error-traces-first with widen-on-empty fallback
+```
+
+## 3. HOW it works
+
+### 3a. Lab vs GCP filter — deliberately divergent (NOT shared)
+
+The obvious DRY move (a shared filter helper) is **wrong** here:
+- **Lab** has no query API → must `get_logs` then filter in Python (client-side).
+- **GCP** filters **server-side** via Cloud Logging filter strings — only matching lines
+  cross the network. That's the entire surgical win; copying Lab's fetch-then-filter into
+  GCP would re-introduce the data-dump it exists to kill.
+
+Lesson: *DRY is a means, not an end. Deduplicating code that should legitimately diverge is
+over-abstraction.* The similarity was coincidental.
+
+### 3b. Cloud Logging filter syntax (GCP)
+
+```
+base:    resource.type="cloud_run_revision" resource.labels.service_name="{svc}"
+errors:  base + ' jsonPayload.level="ERROR"'
+regex:   base + f' jsonPayload.message=~"{pattern}"'
+```
+Filter on `jsonPayload.level` (what our services emit), NOT the built-in `severity` — our
+JSON has no `severity` key so Cloud Run leaves entry severity at default; the real level
+lives in the structured payload. `_run_query_logs(service, filter_str, count)` is the single
+sync core (the to_thread'd `list_entries` + entry→dict mapping), reused by all three GCP
+log methods — intra-class DRY (the Phase 9 extract-parameterize lesson), since *here* the
+behaviour genuinely is the same.
+
+### 3c. Graceful degradation — the load-bearing detail
+
+`memory_leak` and `latency_spike` emit **no ERROR logs** (they show in metrics, not logs).
+So `get_error_traces` returns `[]` for them. `log_detective` therefore narrows first, and
+**widens if empty**:
+
+```python
+error_logs = await ds.get_error_traces(service, count=10)
+if error_logs:
+    logs, logs_source = error_logs, "ERROR LOGS ONLY"
+else:
+    logs = await ds.get_logs(service, count=20)
+    logs_source = "ALL LOGS (NO RECENT ERROR LOGS FOUND)"
+```
+
+The `logs_source` label is passed into the prompt so the LLM reasons about *provenance* —
+for a latency_spike the *absence* of error logs is itself diagnostic. Surgery that finds
+nothing must widen, not go blind. (The LLM-driven version of "widen if empty" — where the
+model itself decides to re-query — is Phase 14. Here it's deterministic code.)
+
+## 4. PROOF (live, real GCP — Phase 10 end-to-end)
+
+crash_loop on order-service, full pipeline against real Cloud Run + Cloud Logging:
+
+- **Scratchpad:** all 6 agents produced real multi-step `thinking_process` before their
+  conclusions (triager derived crash_loop from alert+metrics+logs; critic reasoned the
+  evidence chain before `approved=True`).
+- **Surgery:** `log_detective evidence count=10 | INFO/access-noise lines=0` — every line a
+  `fatal: segmentation fault` ERROR. Phase 8's run had access-log noise here; now pure
+  signal.
+- **Bonus:** log_detective's scratchpad *noticed* the evidence spanned two time periods
+  (today's logs + retained Phase 8 logs in Cloud Logging) and reasoned about it — the
+  deliberation CoT is meant to force.
+
+## 5. MISTAKES & GOTCHAS
+
+| Mistake | Fix |
+|---|---|
+| Invented Cloud Logging syntax `json.Payload("INFO">="ERROR")` | Real syntax: `jsonPayload.level="ERROR"` (read the docs, don't guess) |
+| Missing separator → `..."svc"jsonPayload...` | Trailing space after base clause before `+ filter_str` |
+| Copied Lab's `count*5` over-fetch into GCP | GCP filters server-side — just `count` |
+| Reused `regex` param to hold the result list | Rename to `matches` — works by luck, bug magnet |
+| Stray `from itertools import count` shadowing the param | Delete it — killed F401 + 3×F811 at once |
+| Missing type annotations on new GCP methods | strict mypy/ruff ANN — annotate fully |
+
+## 6. INTERVIEW Q&A
+
+**Q: You had near-identical filter logic in two classes — why didn't you share it?**
+> The similarity was coincidental. Lab must filter client-side (no query API); GCP must
+> filter server-side (that's the performance win). A shared helper would force GCP into the
+> wrong implementation to satisfy DRY. Deduplicating code that should diverge is
+> over-abstraction.
+
+**Q: What happens when the surgical query finds nothing?**
+> It widens. `log_detective` queries ERROR traces first; if empty (silent failures like
+> memory_leak), it falls back to the general log tail and labels the source so the model
+> treats "no errors" as diagnostic. Narrowing without a widen path makes the agent blind.
+
+**Q: Is this the agentic "the LLM picks its own queries" pattern?**
+> No — that's Phase 14 (sub-graph/tool-loop). Phase 10 is deterministic code-driven
+> narrowing. Build and prove the scalpels first; hand them to the LLM to wield itself later.
+
+## 7. WHAT'S NEXT
+
+Phase 11 — Eval harness: a labeled incident set + accuracy/MTTR metrics. The thing that
+makes this *measurable and credible*, not just impressive.
