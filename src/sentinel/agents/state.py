@@ -18,7 +18,6 @@ class Severity(StrEnum):
 
 class IncidentInput(BaseModel):
     """Validated payload POSTed to /incidents — the external API boundary."""
-
     alert_id: str
     service: str
     message: str
@@ -51,6 +50,7 @@ class FailureCategory(StrEnum):
 
 
 class TriagerFindings(BaseModel):
+    thinking_process: str = Field(description="Step-by-step reasoning over the evidence. Think BEFORE the conclusion fields.")
     failure_category: FailureCategory
     summary: str
     affected_services: list[str]
@@ -58,6 +58,7 @@ class TriagerFindings(BaseModel):
 
 
 class InvestigatorFindings(BaseModel):
+    thinking_process: str = Field(description="Step-by-step reasoning over the evidence. Think BEFORE the conclusion fields.")
     agent: str
     focus: str
     summary: str
@@ -65,18 +66,21 @@ class InvestigatorFindings(BaseModel):
     confidence: float = Field(ge=0.0, le=1.0)
     
 class RootCauseFindings(BaseModel):
+    thinking_process: str = Field(description="Step-by-step reasoning over the evidence. Think BEFORE the conclusion fields.")
     root_cause: str
     contributing_factors: list[str]
     confidence: float = Field(ge=0.0, le=1.0)
     recommended_fix: str
 
 class CritiqueResult(BaseModel):
+    thinking_process: str = Field(description="Step-by-step reasoning over the evidence. Think BEFORE the conclusion fields.")
     approved: bool
     feedback: str
     confidence: float = Field(ge=0.0, le=1.0)
     
 
 class PostMortemReport(BaseModel):
+    thinking_process: str = Field(description="Step-by-step reasoning over the evidence. Think BEFORE the conclusion fields.")
     title: str                       # "Crash Loop in api-gateway"
     executive_summary: str           # 2-3 sentences for non-technical management
     timeline: list[str]              # key events in chronological order

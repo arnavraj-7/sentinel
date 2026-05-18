@@ -10,7 +10,7 @@ from sentinel.logging import log
 
 class _InvestigatorOutput(BaseModel):
     """Schema the LLM fills in. `agent` is added programmatically — not by the LLM."""
-
+    thinking_process: str = Field(description="Step-by-step reasoning over the evidence. Think BEFORE the conclusion fields.")
     focus: str
     summary: str
     evidence: list[str]
