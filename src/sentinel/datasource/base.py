@@ -15,7 +15,14 @@ class DataSource(ABC):
     async def get_logs(self, service: str, count: int = 20) -> list[dict[str, Any]]:
         """Returns newest-first list of {ts, level, message}."""
         ...
-
+    @abstractmethod
+    async def get_error_traces(self,service:str,count:int=5)->list[dict[str,Any]]:
+        """Returns newest-error traces {ts, level, message}."""
+        ...
+    @abstractmethod
+    async def search_logs_regex(self,service:str,regex:str,count:int=20)->list[dict[str,Any]]:
+        """Returns newest-first list of log entries matching the regex."""
+        ...
     @abstractmethod
     async def heal(self, service: str) -> dict[str, Any]:
         """Resets the service to healthy. Returns {failure_mode}."""

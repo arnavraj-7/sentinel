@@ -68,7 +68,14 @@ async def _investigate(
 async def log_detective_node(state: IncidentState) -> dict[str, object]:
     ds = get_datasource()
     service = state["input"].service
-    logs = await ds.get_logs(service=service, count=20)
+    error_logs = await ds.get_error_traces(service=service, count=10)
+    logs_source = ""
+    if error_logs:
+        logs = error_logs
+        logs_source = "ERROR LOGS ONLY"
+    else:
+        logs = await ds.get_logs(service=service, count=20)
+        logs_source = "ALL LOGS(NO RECENT ERROR LOGS FOUND)"
 
     log_lines = "\n".join(
         f"[{e['ts']}] {e['level']} {e['message']}" for e in logs
@@ -79,7 +86,7 @@ async def log_detective_node(state: IncidentState) -> dict[str, object]:
     user_content = f"""Service: {service}
 {context}
 
-LOGS (newest first):
+LOGS {logs_source} (newest first):
 {log_lines}
 
 Investigate the logs and return your findings."""
