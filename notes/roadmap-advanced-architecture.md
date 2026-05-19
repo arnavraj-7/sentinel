@@ -147,6 +147,13 @@ Sequenced so each phase unblocks the next and the core demo story comes together
   profiler nodes.
 - **Phase 15 — Semantic caching + context trimming (2e, 2a).** Redis dedup, state trimming.
 - **Phase 16 — Claude Code real code-fix agent + Slack HITL.** The final "real" layer.
+  **Ephemeral-sandbox validation (committed requirement):** CC generates a code patch →
+  Sentinel spins up a throwaway sandbox (isolated Cloud Run revision / separate deploy) →
+  applies the patch there → runs health + eval/tests *in the sandbox* → green ⇒ promote to
+  prod; red ⇒ feed failure logs back to CC (max N) ⇒ else abandon/revert. This is the
+  Phase 12 self-healing verify spine (verification / remediation_attempts / escalate)
+  with "operational action" swapped for "CC patch + ephemeral env" — additive, not a
+  rewrite. (Why Phase 12 must precede 16: the spine is built there.)
 
 LangSmith tracing + cost/latency-per-incident telemetry: layered in starting Phase 9,
 expanded through every subsequent phase.
