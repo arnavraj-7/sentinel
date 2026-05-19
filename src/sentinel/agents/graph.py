@@ -7,11 +7,12 @@ from langgraph.graph.state import CompiledStateGraph
 from sentinel.agents.analyst import (
     after_critic_routing,
     critic_node,
-    finalize_node,
     root_cause_analyst_node,
 )
+from sentinel.agents.finalize import finalize_node
 from sentinel.agents.scribe import post_mortem_node
 from sentinel.agents.executor import (
+    after_executor_routing,
     after_human_routing,
     executor_node,
     human_approval_node,
@@ -24,7 +25,8 @@ from sentinel.agents.investigators import (
 from sentinel.agents.state import IncidentState
 from sentinel.agents.supervisor import supervisor_node
 from sentinel.agents.triager import triager_node
-
+from sentinel.agents.planner import after_planner_routing, planner_node
+from sentinel.agents.verifier import after_verify_routing, verifier_node
 IncidentGraph = CompiledStateGraph[IncidentState, Any, IncidentState, IncidentState]
 
 
@@ -41,6 +43,8 @@ def build_graph(checkpointer: AsyncSqliteSaver) -> IncidentGraph:
     builder.add_node("root_cause_analyst", root_cause_analyst_node)
     builder.add_node("critic", critic_node)
     builder.add_node("human_approval", human_approval_node)
+    builder.add_node("planner",planner_node)
+    builder.add_node("verifier",verifier_node)
     builder.add_node("executor", executor_node)
     builder.add_node("finalize", finalize_node)
     builder.add_node("post_mortem", post_mortem_node)
@@ -58,9 +62,12 @@ def build_graph(checkpointer: AsyncSqliteSaver) -> IncidentGraph:
     builder.add_edge("root_cause_analyst", "critic")
     builder.add_conditional_edges("critic", after_critic_routing)
 
-    # HITL — human routes to executor (approved) or finalize (rejected)
+    # HITL — approved → planner; rejected → finalize
     builder.add_conditional_edges("human_approval", after_human_routing)
-    builder.add_edge("executor", "finalize")
+    # Phase 12 self-healing loop: planner → executor → verifier, with replan
+    builder.add_conditional_edges("planner", after_planner_routing)
+    builder.add_conditional_edges("executor", after_executor_routing)
+    builder.add_conditional_edges("verifier", after_verify_routing)
     builder.add_edge("finalize", "post_mortem")
     builder.add_edge("post_mortem", END)
 

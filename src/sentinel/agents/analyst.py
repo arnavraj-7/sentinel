@@ -144,8 +144,5 @@ def after_critic_routing(state: IncidentState) -> str:
         return "root_cause_analyst"  # if rejected, loop back for another revision
 
 
-# ── Node: finalize ────────────────────────────────────────────────────────────
-
-def finalize_node(state: IncidentState) -> dict[str, object]:
-    log.info("finalize", incident_id=state["incident_id"])
-    return {"done": True}
+    
+        

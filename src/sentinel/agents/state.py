@@ -78,7 +78,35 @@ class CritiqueResult(BaseModel):
     feedback: str
     confidence: float = Field(ge=0.0, le=1.0)
     
+class RemediationAction(StrEnum):
+    HEAL = "heal"
+    RESTART = "restart"
+    ROLLBACK = "rollback"
+    SCALE_UP = "scale_up"
+    INCREASE_DB_POOL = "increase_db_pool"
+    VERIFY_HEALTH = "verify_health"
+    VERIFY_METRICS = "verify_metrics"
+    ESCALATE = "escalate"
 
+class RemediationStep(BaseModel):
+    remediation_action : RemediationAction
+    critical:bool=Field(description=("True if this step is load-bearing: if it fails, the remaining steps and "
+      "verification are pointless and the plan must be revised. False for "
+      "best-effort/optional steps the plan can still succeed without."))
+    description:str =Field(description="Description related to the Action,how to it helps and how to apply it")
+    
+class RemediationPlan(BaseModel):
+    thinking_process: str = Field(description="Step-by-step reasoning over the evidence. Think BEFORE the conclusion fields.")
+    remediation_steps: list[RemediationStep] = Field(min_length=1)
+class StepResult(BaseModel):
+    step:RemediationStep
+    ok:bool
+    detail:str
+
+class VerificationResult(BaseModel):
+    verified:bool
+    verdict:str
+    
 class PostMortemReport(BaseModel):
     thinking_process: str = Field(description="Step-by-step reasoning over the evidence. Think BEFORE the conclusion fields.")
     title: str                       # "Crash Loop in api-gateway"
@@ -91,7 +119,12 @@ class PostMortemReport(BaseModel):
     prevention_steps: list[str]      # concrete steps to prevent recurrence
     lessons_learned: list[str]       # specific to this incident, not generic SRE advice
 
-
+class IncidentOutcome(StrEnum):
+    RESOLVED = "resolved"
+    ESCALATED = "escalated"            # an ESCALATE action actually executed
+    EXHAUSTED = "exhausted"            # remediation_plan is None (loop guard)
+    REJECTED = "rejected"              # human rejected the fix at the HITL gate
+    EMPTY_PLAN_DEFECT = "empty_plan_defect"
 
 
 class IncidentState(TypedDict):
@@ -105,6 +138,12 @@ class IncidentState(TypedDict):
     root_cause_findings:NotRequired[RootCauseFindings | None]
     critique: NotRequired[CritiqueResult | None]
     revision_count: NotRequired[int]
+    remediation_plan : NotRequired[RemediationPlan | None]
+    executor_result : Annotated[list[StepResult],add]
+    verification : NotRequired[VerificationResult | None]
+    remediation_attempts: NotRequired[int]
+    remediation_applied_at: NotRequired[datetime | None]
+    outcome: NotRequired[IncidentOutcome | None]
     human_decision: NotRequired[str]
     post_mortem: NotRequired[str]   
     done: bool

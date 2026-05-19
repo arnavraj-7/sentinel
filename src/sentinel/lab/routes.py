@@ -14,6 +14,16 @@ class InjectRequest(BaseModel):
 
 # --- GET routes (read-only) ---------------------------------------------------
 
+@router.get("/services/{service_name}/health")
+async def health(service_name: str) -> dict:
+    """Health probe: 200 + {"healthy": true} when up, 503 when crash-looping
+    (status code is the signal — SRE/liveness-probe convention)."""
+    state = registry.get(service_name)
+    if state is None:
+        raise HTTPException(status_code=404, detail=f"unknown service '{service_name}'")
+    if state.failure_mode == FailureMode.CRASH_LOOP:
+        raise HTTPException(status_code=503, detail="service down: crash loop")
+    return {"healthy": True}
 @router.get("/services", response_model=list[ServiceState])
 async def list_services() -> list[ServiceState]:
     """List all services and their current failure state."""

@@ -5,7 +5,10 @@ from typing import Any
 class DataSource(ABC):
     """Contract for fetching incident signals. Investigators depend on THIS,
     not on the lab"""
-    
+    @abstractmethod
+    async def get_health(self,service:str) -> dict[str,Any]:
+        """Returns health status of the service"""
+        ...
     @abstractmethod
     async def get_metrics(self, service: str) -> dict[str, Any]:
         """Returns {cpu_pct, memory_mb, latency_p95_ms, error_rate_pct, uptime_seconds}."""

@@ -18,6 +18,10 @@ class Settings(BaseSettings):
     lab_base_url: str = "http://localhost:8000"
     sentinel_base_url: str = "http://localhost:8000"
     datasource: str = "gcp"  # prod default; eval overrides via SENTINEL_DATASOURCE=lab
-
+    max_healthy_error_rate_pct: float = 5.0
+    max_healthy_latency_ms: float = 300.0
+    min_healthy_uptime_s: float = 60.0
+    max_healthy_cpu_pct: float = 60.0
+    max_healthy_memory_mb: float = 600.0
 
 settings = Settings()

@@ -8,10 +8,14 @@ from sentinel.agents.state import (
     AgentNote,
     CritiqueResult,
     IncidentInput,
+    IncidentOutcome,
     IncidentState,
     InvestigatorFindings,
+    RemediationPlan,
     RootCauseFindings,
+    StepResult,
     TriagerFindings,
+    VerificationResult,
     _new_incident_id,
 )
 
@@ -29,6 +33,7 @@ class IncidentResponse(BaseModel):
     critique: CritiqueResult | None = None
     interrupt_payload: dict | None = None
     post_mortem: str | None = None
+    outcome: IncidentOutcome | None = None
 
 
 class ApproveInput(BaseModel):
@@ -47,6 +52,7 @@ def _build_response(incident_id: str, state: dict) -> IncidentResponse:
         root_cause_findings=state.get("root_cause_findings"),
         critique=state.get("critique"),
         post_mortem=state.get("post_mortem"),
+        outcome=state.get("outcome"),
     )
     # Surface what the human needs to review if paused at interrupt()
     if not done and response.root_cause_findings:

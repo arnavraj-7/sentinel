@@ -9,7 +9,12 @@ from sentinel.datasource.base import DataSource
 
 class LabDataSource(DataSource):
     """Talks to the in-process simulated lab at localhost:8000."""
-
+    async def get_health(self, service: str) -> dict[str, Any]:
+        # Normalize on STATUS CODE so the verifier's check is identical
+        # regardless of datasource (the whole point of the abstraction).
+        async with httpx.AsyncClient(base_url=settings.lab_base_url, timeout=10.0) as client:
+            resp = await client.get(f"/lab/services/{service}/health")
+        return {"healthy": resp.status_code < 500, "detail": f"HTTP {resp.status_code}"}
     async def get_metrics(self, service: str) -> dict[str, Any]:
         async with httpx.AsyncClient(base_url=settings.lab_base_url, timeout=10.0) as client:
             resp = await client.get(f"/lab/services/{service}/metrics")

@@ -13,6 +13,14 @@ class GCPDataSource(DataSource):
     """Implemnents Data from GCP directly using google-cloud libraries"""
     def __init__(self) -> None:
         self._log_client = gcloud_logging.Client(project=settings.google_project)
+
+    async def get_health(self, service: str) -> dict[str, Any]:
+        # Real services return an EMPTY-body 200/500 — read the STATUS CODE,
+        # never .json() (an empty 200 body would crash json parsing).
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(f"{get_service_url(service)}/health")
+        return {"healthy": resp.status_code < 500, "detail": f"HTTP {resp.status_code}"}
+
     def _run_query_logs(self, service: str,filter_str: str,count: int) -> list[dict[str, Any]]:
       entries = self._log_client.list_entries(
           filter_=('resource.type="cloud_run_revision" '
