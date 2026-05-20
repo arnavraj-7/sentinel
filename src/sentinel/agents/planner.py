@@ -1,7 +1,7 @@
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from sentinel.agents.llm import structured_invoke
-from sentinel.agents.state import AgentNote, IncidentState, RemediationPlan
+from sentinel.agents.state import AgentNote, IncidentState, RemediationPlan, DANGEROUS_ACTIONS
 
 _MAX_REMEDIATION_ATTEMPTS = 3
 
@@ -89,4 +89,6 @@ def after_planner_routing(state: IncidentState) -> str:
     remediation_plan = state.get("remediation_plan")
     if remediation_plan is None :
         return "finalize"
+    if any(s.remediation_action in DANGEROUS_ACTIONS  for s in remediation_plan.remediation_steps):
+        return "human_approval_plan"
     return "executor"

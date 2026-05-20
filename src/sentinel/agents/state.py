@@ -88,6 +88,23 @@ class RemediationAction(StrEnum):
     VERIFY_METRICS = "verify_metrics"
     ESCALATE = "escalate"
 
+
+# Phase 13a — Safe/Dangerous dual-track classification.
+# Single source of truth: a Dangerous action MUTATES production state and is
+# gated by a human-approval interrupt before the executor runs. A Safe action
+# is read-only (verify_*) or terminal-signalling (escalate) and may execute
+# unattended. Membership is the entire contract — there is no `DangerousAction`
+# parallel enum to keep in sync, only this set.
+DANGEROUS_ACTIONS: frozenset[RemediationAction] = frozenset({
+    RemediationAction.HEAL,             # /heal restarts the service → mutation
+    RemediationAction.RESTART,          # in-place restart            → mutation
+    RemediationAction.ROLLBACK,         # redeploy prior revision     → mutation
+    RemediationAction.SCALE_UP,         # changes instance count      → mutation
+    RemediationAction.INCREASE_DB_POOL, # changes runtime config      → mutation
+})
+# Safe (NOT in the set): VERIFY_HEALTH, VERIFY_METRICS (read-only probes),
+# ESCALATE (signals a human — no production mutation).
+
 class RemediationStep(BaseModel):
     remediation_action : RemediationAction
     critical:bool=Field(description=("True if this step is load-bearing: if it fails, the remaining steps and "
@@ -145,5 +162,6 @@ class IncidentState(TypedDict):
     remediation_applied_at: NotRequired[datetime | None]
     outcome: NotRequired[IncidentOutcome | None]
     human_decision: NotRequired[str]
+    human_decision_plan: NotRequired[str]
     post_mortem: NotRequired[str]   
     done: bool

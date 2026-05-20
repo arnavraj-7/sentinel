@@ -10,7 +10,7 @@ def finalize_node(state: IncidentState) -> dict[str, object]:
     log.info("finalize", incident_id=state["incident_id"])
 
     # 1. Human rejected at the HITL gate — no remediation was attempted.
-    if state.get("human_decision") == "rejected":
+    if state.get("human_decision") == "rejected" or state.get("human_decision_plan") == "rejected":
         outcome = IncidentOutcome.REJECTED
 
     # 2. Planner exhausted its attempts — remediation_plan is None.

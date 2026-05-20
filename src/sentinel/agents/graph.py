@@ -13,9 +13,11 @@ from sentinel.agents.finalize import finalize_node
 from sentinel.agents.scribe import post_mortem_node
 from sentinel.agents.executor import (
     after_executor_routing,
-    after_human_routing,
+    human_approval_rca_node,
+    after_human_rca_routing,
     executor_node,
-    human_approval_node,
+    human_approval_plan_node,
+    after_human_plan_routing,
 )
 from sentinel.agents.investigators import (
     log_detective_node,
@@ -42,7 +44,8 @@ def build_graph(checkpointer: AsyncSqliteSaver) -> IncidentGraph:
     builder.add_node("topology_mapper", topology_mapper_node)
     builder.add_node("root_cause_analyst", root_cause_analyst_node)
     builder.add_node("critic", critic_node)
-    builder.add_node("human_approval", human_approval_node)
+    builder.add_node("human_approval_rca", human_approval_rca_node)
+    builder.add_node("human_approval_plan",human_approval_plan_node)
     builder.add_node("planner",planner_node)
     builder.add_node("verifier",verifier_node)
     builder.add_node("executor", executor_node)
@@ -63,9 +66,10 @@ def build_graph(checkpointer: AsyncSqliteSaver) -> IncidentGraph:
     builder.add_conditional_edges("critic", after_critic_routing)
 
     # HITL — approved → planner; rejected → finalize
-    builder.add_conditional_edges("human_approval", after_human_routing)
-    # Phase 12 self-healing loop: planner → executor → verifier, with replan
+    builder.add_conditional_edges("human_approval_rca", after_human_rca_routing)
+    # Phase 12 self-healing loop: planner → HITL → executor → verifier, with replan
     builder.add_conditional_edges("planner", after_planner_routing)
+    builder.add_conditional_edges("human_approval_plan",after_human_plan_routing)
     builder.add_conditional_edges("executor", after_executor_routing)
     builder.add_conditional_edges("verifier", after_verify_routing)
     builder.add_edge("finalize", "post_mortem")

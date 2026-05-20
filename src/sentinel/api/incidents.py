@@ -55,13 +55,9 @@ def _build_response(incident_id: str, state: dict) -> IncidentResponse:
         outcome=state.get("outcome"),
     )
     # Surface what the human needs to review if paused at interrupt()
-    if not done and response.root_cause_findings:
-        rca = response.root_cause_findings
-        response.interrupt_payload = {
-            "root_cause": rca.root_cause,
-            "recommended_fix": rca.recommended_fix,
-            "confidence": rca.confidence,
-        }
+    interrupt = state.get("pending_interrupt",None)
+    if interrupt is not None:
+        response.interrupt_payload = interrupt
     return response
 
 
@@ -77,6 +73,15 @@ async def trigger_incident(payload: IncidentInput, request: Request) -> Incident
         "done": False,
     }
     final_state = await graph.ainvoke(initial, config=config)
+    snapshot = await graph.aget_state(config)
+    pending_interrupt = next(
+      (intr.value
+       for task in snapshot.tasks
+       for intr in task.interrupts),
+      None,
+    )
+    final_state["pending_interrupt"] = pending_interrupt
+    
     return _build_response(incident_id, final_state)
 
 
@@ -89,9 +94,18 @@ async def approve_incident(
 
     # Verify the incident exists and is paused
     snapshot = await graph.aget_state(config)
+    
     if not snapshot or not snapshot.tasks:
         raise HTTPException(status_code=404, detail=f"No pending incident '{incident_id}'")
 
     decision = "approved" if payload.approved else "rejected"
     final_state = await graph.ainvoke(Command(resume=decision), config=config)
+    snapshot = await graph.aget_state(config)
+    pending_interrupt = next(
+      (intr.value
+       for task in snapshot.tasks
+       for intr in task.interrupts),
+      None,
+    )
+    final_state["pending_interrupt"] = pending_interrupt
     return _build_response(incident_id, final_state)

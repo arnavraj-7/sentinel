@@ -2,6 +2,7 @@ from langgraph.types import interrupt
 
 from sentinel.agents.state import (
     AgentNote,
+    DANGEROUS_ACTIONS,
     IncidentState,
     RemediationAction,
     RemediationStep,
@@ -9,17 +10,73 @@ from sentinel.agents.state import (
 )
 from sentinel.datasource import get_datasource
 from sentinel.logging import log
-from datetime import UTC,datetime
+from datetime import UTC, datetime
 
-def human_approval_node(state: IncidentState) -> dict[str, object]:
-    log.info("human_approval_node.run", incident_id=state["incident_id"])
+
+# ── Human-in-the-loop (Phase 13a) ───────────────────────────────────────────
+# Two distinct gates in the graph, one shared mechanism:
+#   1. human_approval_rca_node  — approve the root cause before planning runs
+#   2. human_approval_plan_node — approve the plan when it contains any
+#      Dangerous action (Safe-only plans bypass this gate via the planner
+#      router; see after_planner_routing).
+# Both nodes MUST stay pure (no side effects before interrupt()) — LangGraph
+# re-runs the entire node body on resume, so any side effect would execute
+# twice. The shared `_human_approval` helper just wraps interrupt() to mark
+# this contract.
+
+def _human_approval(payload: dict) -> str:
+    """Pause the graph; surface `payload` to the human; return the resume value.
+
+    Mechanism (no API knowledge in LangGraph):
+      1. interrupt(payload) raises GraphInterrupt → the checkpointer (SQLite)
+         persists state. payload is parked in snapshot.tasks[].interrupts[].value.
+      2. graph.ainvoke() returns NORMALLY to the API caller — does not raise.
+         The API reads the snapshot, surfaces the payload over HTTP.
+      3. On resume via Command(resume=<str>), the whole node re-runs from the
+         top; this time interrupt() returns the resume value directly.
+    """
+    return interrupt(payload)
+
+
+def human_approval_rca_node(state: IncidentState) -> dict[str, object]:
+    """HITL gate #1 — approve root-cause + recommended fix BEFORE the planner
+    is allowed to emit a remediation plan. Pure by construction."""
+    log.info("human_approval_rca.run", incident_id=state["incident_id"])
     rca = state["root_cause_findings"]
-    decision = interrupt({
+    decision = _human_approval({
+        "stage": "root_cause",
         "root_cause": rca.root_cause,
         "recommended_fix": rca.recommended_fix,
         "confidence": rca.confidence,
     })
     return {"human_decision": decision}
+
+
+def human_approval_plan_node(state: IncidentState) -> dict[str, object]:
+    """HITL gate #2 — approve the remediation plan. Entered only when the
+    plan contains at least one Dangerous action (router enforces this; a
+    Safe-only plan goes straight to the executor). Pure by construction.
+
+    Payload is JSON-serialized via model_dump(mode="json") so the API can
+    render it directly from snapshot.tasks[].interrupts[].value.
+    """
+    log.info("human_approval_plan.run", incident_id=state["incident_id"])
+    plan = state.get("remediation_plan")
+    if plan is None:
+        # Routing should never let us enter without a plan — defensive only.
+        raise RuntimeError("human_approval_plan_node entered with no plan")
+
+    dangerous = [
+        s for s in plan.remediation_steps
+        if s.remediation_action in DANGEROUS_ACTIONS
+    ]
+    decision = _human_approval({
+        "stage": "plan",
+        "dangerous_steps": [s.model_dump(mode="json") for s in dangerous],
+        "all_steps": [s.model_dump(mode="json") for s in plan.remediation_steps],
+    })
+    return {"human_decision_plan": decision}
+
 
 
 async def execute_step(step: RemediationStep, ds: object, service: str) -> StepResult:
@@ -65,7 +122,6 @@ async def execute_step(step: RemediationStep, ds: object, service: str) -> StepR
         return StepResult(
             step=step, ok=False, detail=f"{action.value} failed: {e}"
         )
-
 
 async def executor_node(state: IncidentState) -> dict[str, object]:
     ds = get_datasource()
@@ -138,12 +194,20 @@ def after_executor_routing(state: IncidentState) -> str:
     return "verifier"
 
 
-def after_human_routing(state: IncidentState) -> str:
-    approval = state.get("human_decision")
-    if approval == "approved":
-        log.info("after_human_routing.approved", incident_id=state["incident_id"])
-        # Phase 12: approved → PLANNER (plan → execute → verify), not straight
-        # to executor.
+def after_human_rca_routing(state: IncidentState) -> str:
+    """RCA approval gate: approved → planner; anything else → finalize.
+    One gate, one decision, one return per branch — no fall-through tricks."""
+    if state.get("human_decision") == "approved":
+        log.info("after_human_rca.approved", incident_id=state["incident_id"])
         return "planner"
-    log.info("after_human_routing.rejected", incident_id=state["incident_id"])
+    log.info("after_human_rca.rejected", incident_id=state["incident_id"])
+    return "finalize"
+
+
+def after_human_plan_routing(state: IncidentState) -> str:
+    """Plan approval gate: approved → executor; anything else → finalize."""
+    if state.get("human_decision_plan") == "approved":
+        log.info("after_human_plan.approved", incident_id=state["incident_id"])
+        return "executor"
+    log.info("after_human_plan.rejected", incident_id=state["incident_id"])
     return "finalize"
