@@ -1,7 +1,12 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from sentinel.lab.generators import generate_logs, generate_metrics
+from sentinel.lab.generators import (
+    clear_poison,
+    generate_logs,
+    generate_metrics,
+    set_poison,
+)
 from sentinel.lab.models import FailureMode, LogLine, MetricsSnapshot, ServiceState
 from sentinel.lab.registry import ALL_SERVICES, registry
 
@@ -10,6 +15,13 @@ router = APIRouter(prefix="/lab", tags=["lab"])
 
 class InjectRequest(BaseModel):
     mode: FailureMode
+
+
+class PoisonLogRequest(BaseModel):
+    """Phase 13b test affordance — push attacker-crafted text into a service's
+    log feed to verify that downstream LLMs treat it as data, not instructions."""
+    level: str = "ERROR"   # default ERROR so log_detective picks it up via get_error_traces
+    message: str
 
 
 # --- GET routes (read-only) ---------------------------------------------------
@@ -54,6 +66,22 @@ async def heal_service(service_name: str) -> ServiceState:
     if service_name not in ALL_SERVICES:
         raise HTTPException(status_code=404, detail=f"unknown service '{service_name}'")
     return registry.heal(service_name)
+
+
+@router.post("/services/{service_name}/poison_log", response_model=dict)
+async def poison_log(service_name: str, body: PoisonLogRequest) -> dict:
+    """Push attacker-crafted text into the service's log feed (test-only)."""
+    if service_name not in ALL_SERVICES:
+        raise HTTPException(status_code=404, detail=f"unknown service '{service_name}'")
+    set_poison(service_name, body.level, body.message)
+    return {"service": service_name, "poisoned_level": body.level, "poisoned_message": body.message}
+
+
+@router.post("/services/{service_name}/clear_poison", response_model=dict)
+async def clear_poison_route(service_name: str) -> dict:
+    """Drop poisoned lines for the service (clean-up after a test)."""
+    clear_poison(service_name)
+    return {"service": service_name, "cleared": True}
 
 
 @router.post("/services/{service_name}/inject", response_model=ServiceState)

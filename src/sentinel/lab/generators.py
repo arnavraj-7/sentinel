@@ -61,6 +61,24 @@ _LOGS: dict[FailureMode, list[tuple[str, str]]] = {
 }
 
 
+# ── Phase 13b — poisoned-log test affordance ────────────────────────────────
+# In-memory store: per-service list of (level, message) lines that get prepended
+# to generated logs. ONLY used to test that prompt-injection defenses hold;
+# never populated in normal operation. Cleared via clear_poison() or by service
+# heal (separately).
+_POISONED_LINES: dict[str, list[tuple[str, str]]] = {}
+
+
+def set_poison(service: str, level: str, message: str) -> None:
+    """Push a poisoned log line for `service`. Stays until clear_poison()."""
+    _POISONED_LINES.setdefault(service, []).append((level, message))
+
+
+def clear_poison(service: str) -> None:
+    """Drop all poisoned lines for `service` (call after each test)."""
+    _POISONED_LINES.pop(service, None)
+
+
 def _jitter(value: float, pct: float = 0.10) -> float:
     return round(value * (1 + random.uniform(-pct, pct)), 2)
 
@@ -81,9 +99,9 @@ def generate_metrics(service: str, mode: FailureMode) -> MetricsSnapshot:
 def generate_logs(service: str, mode: FailureMode, count: int = 8) -> list[LogLine]:
     templates = _LOGS[mode]
     now = datetime.now(UTC)
-    return [
+    synthetic = [
         LogLine(
-            ts=now - timedelta(seconds=i * 10),
+            ts=now - timedelta(seconds=(i + 1) * 10),
             level=lvl,
             service=service,
             message=msg,
@@ -92,3 +110,12 @@ def generate_logs(service: str, mode: FailureMode, count: int = 8) -> list[LogLi
             random.choices(templates, k=count)
         )
     ]
+    # Prepend any poisoned lines as the most-recent entries. Newest-first ordering
+    # is what investigators consume, so attacker text shows up at the TOP of the
+    # log feed — the most-prominent position. If defenses don't hold here, they
+    # don't hold anywhere.
+    poisoned = [
+        LogLine(ts=now, level=lvl, service=service, message=msg)
+        for (lvl, msg) in _POISONED_LINES.get(service, [])
+    ]
+    return poisoned + synthetic
