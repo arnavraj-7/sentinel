@@ -7,7 +7,9 @@ from sentinel.agents.state import (
     RemediationAction,
     RemediationStep,
     StepResult,
+    PatchReport
 )
+from sentinel.agents.code_fixer import code_fixer
 from sentinel.datasource import get_datasource
 from sentinel.logging import log
 from datetime import UTC, datetime
@@ -86,8 +88,9 @@ async def execute_step(step: RemediationStep, ds: object, service: str) -> StepR
     so the critical-step routing has something to react to.
 
     Honest reality: only HEAL hits a real endpoint; restart/rollback/scale have
-    no simulator endpoint yet → honest-simulated. Real gcloud/CC execution is a
-    later phase.
+    no simulator endpoint yet → honest-simulated. APPLY_CODE_PATCH is NOT handled
+    here — it is a multi-step Claude Code sub-agent that executor_node drives
+    directly, so this function stays a pure single-return-type dispatcher.
     """
     action = step.remediation_action
     try:
@@ -147,10 +150,22 @@ async def executor_node(state: IncidentState) -> dict[str, object]:
                 AgentNote(agent="executor", content="Empty plan — no steps to execute.")
             ]
         }
-
     step_results: list[StepResult] = []
+    patch_reports: list[PatchReport] = []
     for step in steps:
-        result = await execute_step(step, ds, service)
+        if step.remediation_action == RemediationAction.APPLY_CODE_PATCH:
+            # Code-fix is a multi-step Claude Code sub-agent, not a one-shot
+            # call — executor_node drives it directly so execute_step stays a
+            # pure single-return-type dispatcher.
+            report = await code_fixer(state)
+            patch_reports.append(report)
+            result = StepResult(
+                step=step,
+                ok=bool(report.commit_sha),   # a real commit SHA == success
+                detail=report.summary,
+            )
+        else:
+            result = await execute_step(step, ds, service)
         step_results.append(result)
         # Critical-step early-stop: a load-bearing failure makes the rest
         # pointless — bail so the planner can replan from the precise failure.
@@ -174,6 +189,7 @@ async def executor_node(state: IncidentState) -> dict[str, object]:
         "notes": [note],
         "executor_result": step_results,
         "remediation_applied_at": datetime.now(UTC),
+        "patch_reports": patch_reports,   # list — the Annotated[..., add] reducer extends
     }
 
 def after_executor_routing(state: IncidentState) -> str:

@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     google_project: str = "sentinel-496513"
     lab_base_url: str = "http://localhost:8000"
     sentinel_base_url: str = "http://localhost:8000"
+    github_prod_link: str = "D:/projects/codefix-testrepo"
     datasource: str = "gcp"  # prod default; eval overrides via SENTINEL_DATASOURCE=lab
     max_healthy_error_rate_pct: float = 5.0
     max_healthy_latency_ms: float = 300.0

@@ -87,6 +87,7 @@ class RemediationAction(StrEnum):
     VERIFY_HEALTH = "verify_health"
     VERIFY_METRICS = "verify_metrics"
     ESCALATE = "escalate"
+    APPLY_CODE_PATCH = "apply_code_patch"  
 
 
 # Phase 13a — Safe/Dangerous dual-track classification.
@@ -101,6 +102,7 @@ DANGEROUS_ACTIONS: frozenset[RemediationAction] = frozenset({
     RemediationAction.ROLLBACK,         # redeploy prior revision     → mutation
     RemediationAction.SCALE_UP,         # changes instance count      → mutation
     RemediationAction.INCREASE_DB_POOL, # changes runtime config      → mutation
+    RemediationAction.APPLY_CODE_PATCH  # changes code                → mutation
 })
 # Safe (NOT in the set): VERIFY_HEALTH, VERIFY_METRICS (read-only probes),
 # ESCALATE (signals a human — no production mutation).
@@ -124,6 +126,17 @@ class VerificationResult(BaseModel):
     verified:bool
     verdict:str
     
+class PatchReport(BaseModel):
+    cc_session_id: str = ""
+    summary: str                       # CC's final prose — what changed and why
+    files_touched: list[str]           # read deterministically from git
+    commit_sha: str                    # read deterministically from git
+    tokens_used: int | None = None
+    wall_time_seconds: float | None = None
+    tools_used: list[str] | None = None
+    
+    
+    
 class PostMortemReport(BaseModel):
     thinking_process: str = Field(description="Step-by-step reasoning over the evidence. Think BEFORE the conclusion fields.")
     title: str                       # "Crash Loop in api-gateway"
@@ -142,6 +155,7 @@ class IncidentOutcome(StrEnum):
     EXHAUSTED = "exhausted"            # remediation_plan is None (loop guard)
     REJECTED = "rejected"              # human rejected the fix at the HITL gate
     EMPTY_PLAN_DEFECT = "empty_plan_defect"
+    
 
 
 class IncidentState(TypedDict):
@@ -160,6 +174,7 @@ class IncidentState(TypedDict):
     verification : NotRequired[VerificationResult | None]
     remediation_attempts: NotRequired[int]
     remediation_applied_at: NotRequired[datetime | None]
+    patch_reports : Annotated[list[PatchReport],add]
     outcome: NotRequired[IncidentOutcome | None]
     human_decision: NotRequired[str]
     human_decision_plan: NotRequired[str]
