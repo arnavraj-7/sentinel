@@ -193,12 +193,22 @@ async def executor_node(state: IncidentState) -> dict[str, object]:
     }
 
 def after_executor_routing(state: IncidentState) -> str:
-    """A critical step failed → back to the planner to replan from the failure.
-    Otherwise → verifier (did the plan actually restore health?)."""
+    """Route after the executor runs the plan's steps.
+
+    A code patch was attempted → sandbox_verifier (its verification + retry
+    loop live on the sandbox path, not the planner loop). Otherwise: a critical
+    step failed → planner (replan); an escalate ran → finalize; else → verifier.
+    """
     results = state.get("executor_result") or []
     if not results:
         # Nothing ran (exhausted/empty) — end the incident.
         return "finalize"
+    # A code patch was attempted → its differential verification owns the next
+    # step (even if the patch step itself failed — sandbox_verifier reports it
+    # and the retry loop re-runs code_fixer).
+    if state.get("patch_reports"):
+        log.info("after_executor.code_patch_to_sandbox", incident_id=state["incident_id"])
+        return "sandbox_verifier"
     last = results[-1]
     if not last.ok and last.step.critical:
         log.info("after_executor.critical_failure_replan", incident_id=state["incident_id"])

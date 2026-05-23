@@ -135,7 +135,9 @@ class PatchReport(BaseModel):
     wall_time_seconds: float | None = None
     tools_used: list[str] | None = None
     
-    
+class PatchVerification(BaseModel):
+    ok:bool
+    description:str
     
 class PostMortemReport(BaseModel):
     thinking_process: str = Field(description="Step-by-step reasoning over the evidence. Think BEFORE the conclusion fields.")
@@ -175,6 +177,7 @@ class IncidentState(TypedDict):
     remediation_attempts: NotRequired[int]
     remediation_applied_at: NotRequired[datetime | None]
     patch_reports : Annotated[list[PatchReport],add]
+    patch_verification : Annotated[list[PatchVerification],add]
     outcome: NotRequired[IncidentOutcome | None]
     human_decision: NotRequired[str]
     human_decision_plan: NotRequired[str]

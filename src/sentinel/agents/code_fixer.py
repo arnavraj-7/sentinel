@@ -1,8 +1,16 @@
 import asyncio
 from claude_agent_sdk import query, ClaudeAgentOptions,ResultMessage
-from sentinel.agents.state import IncidentState, PatchReport, RemediationAction
+from sentinel.agents.state import (
+    AgentNote,
+    IncidentState,
+    PatchReport,
+    PatchVerification,
+    RemediationAction,
+)
 from sentinel.config import settings
+from sentinel.logging import log
 import os
+import sys
 import tempfile
 from datetime import datetime
 
@@ -174,6 +182,155 @@ async def _git(cwd: str, *args: str) -> str:
             f"{stderr.decode(errors='replace').strip()}"
         )
     return stdout.decode(errors="replace").strip()
+
+
+async def run_tests(cwd: str, paths: list[str] | None = None) -> tuple[bool, str]:
+    """Run the pytest suite in `cwd`; return (all_passed, combined_output).
+
+    Unlike `_git`, this NEVER raises on a failing test — a failing test is
+    normal data for a verifier, not a fault. It returns a verdict. (A genuine
+    fault, like pytest not being importable, would still surface in the output
+    and a non-zero return code.)
+
+    pytest runs EVERY test and reports EVERY failure in one invocation — no
+    `-x` — so the caller gets the full failure picture to feed back to CC.
+
+    paths: limit the run to specific test files (used for the fail-on-parent
+           differential check). None runs the whole discovered suite.
+    """
+    cmd = [sys.executable, "-m", settings.test_command, "-q", *(paths or [])]
+    proc = await asyncio.create_subprocess_exec(
+        *cmd,
+        cwd=cwd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.STDOUT,   # merge stderr into stdout — one stream
+    )
+    stdout, _ = await proc.communicate()
+    output = stdout.decode(errors="replace").strip()
+    return proc.returncode == 0, output
+
+
+def _is_test_file(path: str) -> bool:
+    """True if pytest would collect `path` (repo-relative) as a test file."""
+    p = path.replace("\\", "/")
+    name = p.rsplit("/", 1)[-1]
+    if not name.endswith(".py"):
+        return False
+    return (
+        name.startswith("test_")
+        or name.endswith("_test.py")
+        or p.startswith("tests/")
+        or "/tests/" in p
+    )
+
+
+async def sandbox_verifier_node(state: IncidentState) -> dict[str, object]:
+    """Differential verification of the most recent code patch — deterministic,
+    no LLM (the Phase 12 asymmetric-safety principle, reapplied).
+
+    Proves the patch genuinely fixes a real bug by checking TWO things:
+      - pass-on-fix    : the whole suite is green at CC's commit.
+      - fail-on-parent : the same suite — the fix's TESTS on the PARENT's
+                         code — must FAIL. A fake/trivial test passes here
+                         and gets the patch rejected.
+    verified  ⇔  pass-on-fix AND fail-on-parent.
+
+    NOTE: `git stash` is the wrong tool — CC has already COMMITTED, so the
+    working tree is clean and stash would be a no-op. The fix is a commit; to
+    un-apply it you check out its parent, then overlay the fix-commit's tests.
+    """
+    incident_id = state["incident_id"]
+    log.info("sandbox_verifier.run", incident_id=incident_id)
+
+    patch_reports = state.get("patch_reports") or []
+    if not patch_reports:
+        return {"patch_verification": [PatchVerification(
+            ok=False, description="VERIFICATION ERROR: no patch report to verify."
+        )]}
+
+    report = patch_reports[-1]
+    if not report.commit_sha:
+        return {"patch_verification": [PatchVerification(
+            ok=False,
+            description=f"CODE FIX FAILED: no commit was produced. {report.summary}",
+        )]}
+
+    cwd = await create_sandbox_env(incident_id)
+    sha = report.commit_sha
+
+    try:
+        # CC's changed files, split into test files vs everything else.
+        changed = (await _git(cwd, "show", "--name-only", "--format=", sha)).split()
+        changed_tests = [f for f in changed if _is_test_file(f)]
+
+        # pass-on-fix — whole suite at the fix commit.
+        await _git(cwd, "checkout", "--force", sha)
+        fix_ok, fix_out = await run_tests(cwd)
+
+        # fail-on-parent — parent's code + the fix-commit's tests.
+        await _git(cwd, "checkout", "--force", f"{sha}^")
+        if changed_tests:
+            await _git(cwd, "checkout", sha, "--", *changed_tests)
+        parent_ok, parent_out = await run_tests(cwd)
+
+        # restore the clean, promotable fixed state.
+        await _git(cwd, "checkout", "--force", sha)
+    except Exception as e:
+        return {"patch_verification": [PatchVerification(
+            ok=False,
+            description=f"VERIFICATION ERROR: differential check could not run: {e}",
+        )]}
+
+    verified = fix_ok and not parent_ok
+    if verified:
+        description = (
+            "VERIFIED: the suite is green on the fix and red on the unfixed "
+            "code — a test genuinely catches the bug."
+        )
+    elif not fix_ok:
+        description = f"FIX FAILED: the test suite is not green with the patch.\n{fix_out}"
+    else:  # fix_ok and parent_ok
+        description = (
+            "FAKE TEST: the suite passes even against the UNFIXED code — no "
+            f"test actually catches the bug.\n{parent_out}"
+        )
+
+    log.info("sandbox_verifier.done", incident_id=incident_id, verified=verified)
+    return {
+        "patch_verification": [PatchVerification(ok=verified, description=description)],
+        "notes": [AgentNote(
+            agent="sandbox_verifier",
+            content=f"Patch verification: {'PASS' if verified else 'FAIL'} — "
+                    f"{description.splitlines()[0]}",
+        )],
+    }
+
+
+_MAX_PATCH_ATTEMPTS = 5
+
+
+def after_sandbox_verifier_routing(state: IncidentState) -> str:
+    """Route on the differential patch-verification verdict.
+
+    verified              → finalize. (Phase 16c inserts promote-to-prod and
+                            the promote HITL gate between here and finalize.)
+    failed, attempts left → executor — re-run; code_fixer resumes the CC
+                            session and re-patches. Bounded by the number of
+                            patch attempts so far (len(patch_reports)).
+    failed, exhausted     → finalize.
+    """
+    verifications = state.get("patch_verification") or []
+    if verifications and verifications[-1].ok:
+        log.info("after_sandbox_verifier.verified", incident_id=state["incident_id"])
+        return "finalize"
+    attempts = len(state.get("patch_reports") or [])
+    if attempts < _MAX_PATCH_ATTEMPTS:
+        log.info("after_sandbox_verifier.retry",
+                 incident_id=state["incident_id"], attempts=attempts)
+        return "executor"
+    log.info("after_sandbox_verifier.exhausted",
+             incident_id=state["incident_id"], attempts=attempts)
+    return "finalize"
 
 
 # ── SDK trace (opt-in debug) ─────────────────────────────────────────────────

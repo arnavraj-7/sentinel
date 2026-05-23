@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     lab_base_url: str = "http://localhost:8000"
     sentinel_base_url: str = "http://localhost:8000"
     github_prod_link: str = "D:/projects/codefix-testrepo"
+    test_command: str = "pytest"  # python test-runner module for sandbox verification
     datasource: str = "gcp"  # prod default; eval overrides via SENTINEL_DATASOURCE=lab
     max_healthy_error_rate_pct: float = 5.0
     max_healthy_latency_ms: float = 300.0

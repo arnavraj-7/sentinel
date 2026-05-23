@@ -29,6 +29,10 @@ from sentinel.agents.supervisor import supervisor_node
 from sentinel.agents.triager import triager_node
 from sentinel.agents.planner import after_planner_routing, planner_node
 from sentinel.agents.verifier import after_verify_routing, verifier_node
+from sentinel.agents.code_fixer import (
+    after_sandbox_verifier_routing,
+    sandbox_verifier_node,
+)
 IncidentGraph = CompiledStateGraph[IncidentState, Any, IncidentState, IncidentState]
 
 
@@ -49,6 +53,7 @@ def build_graph(checkpointer: AsyncSqliteSaver) -> IncidentGraph:
     builder.add_node("planner",planner_node)
     builder.add_node("verifier",verifier_node)
     builder.add_node("executor", executor_node)
+    builder.add_node("sandbox_verifier", sandbox_verifier_node)
     builder.add_node("finalize", finalize_node)
     builder.add_node("post_mortem", post_mortem_node)
 
@@ -71,6 +76,9 @@ def build_graph(checkpointer: AsyncSqliteSaver) -> IncidentGraph:
     builder.add_conditional_edges("planner", after_planner_routing)
     builder.add_conditional_edges("human_approval_plan",after_human_plan_routing)
     builder.add_conditional_edges("executor", after_executor_routing)
+    # Code-patch path: executor → sandbox_verifier → (verified) finalize
+    #                                              → (failed) executor retry, bounded
+    builder.add_conditional_edges("sandbox_verifier", after_sandbox_verifier_routing)
     builder.add_conditional_edges("verifier", after_verify_routing)
     builder.add_edge("finalize", "post_mortem")
     builder.add_edge("post_mortem", END)
