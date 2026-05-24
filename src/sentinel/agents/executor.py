@@ -7,9 +7,7 @@ from sentinel.agents.state import (
     RemediationAction,
     RemediationStep,
     StepResult,
-    PatchReport
 )
-from sentinel.agents.code_fixer import code_fixer
 from sentinel.datasource import get_datasource
 from sentinel.logging import log
 from datetime import UTC, datetime
@@ -127,97 +125,113 @@ async def execute_step(step: RemediationStep, ds: object, service: str) -> StepR
         )
 
 async def executor_node(state: IncidentState) -> dict[str, object]:
+    """Process exactly ONE step at state['next_step_index'], advance, return.
+
+    Per-step model (Option 3) — never iterates the whole plan in one invocation.
+    Never sees APPLY_CODE_PATCH; routing dispatches that to the code_patch
+    sub-graph BEFORE this node runs.
+    """
     ds = get_datasource()
     service = state["input"].service
-    log.info("executor.run", incident_id=state["incident_id"], service=service)
+    idx = state.get("next_step_index", 0)
+    log.info("executor.run", incident_id=state["incident_id"], step_index=idx)
 
     plan = state.get("remediation_plan")
     if plan is None:
         # Planner exhausted its attempts — nothing to execute, escalate.
-        return {
-            "notes": [
-                AgentNote(
-                    agent="executor",
-                    content="No remediation plan (attempts exhausted) — escalated.",
-                )
-            ]
-        }
+        return {"notes": [AgentNote(
+            agent="executor",
+            content="No remediation plan (attempts exhausted) — escalated.",
+        )]}
 
     steps = plan.remediation_steps
     if not steps:
-        return {
-            "notes": [
-                AgentNote(agent="executor", content="Empty plan — no steps to execute.")
-            ]
-        }
-    step_results: list[StepResult] = []
-    patch_reports: list[PatchReport] = []
-    for step in steps:
-        if step.remediation_action == RemediationAction.APPLY_CODE_PATCH:
-            # Code-fix is a multi-step Claude Code sub-agent, not a one-shot
-            # call — executor_node drives it directly so execute_step stays a
-            # pure single-return-type dispatcher.
-            report = await code_fixer(state)
-            patch_reports.append(report)
-            result = StepResult(
-                step=step,
-                ok=bool(report.commit_sha),   # a real commit SHA == success
-                detail=report.summary,
-            )
-        else:
-            result = await execute_step(step, ds, service)
-        step_results.append(result)
-        # Critical-step early-stop: a load-bearing failure makes the rest
-        # pointless — bail so the planner can replan from the precise failure.
-        if not result.ok and step.critical:
-            break
+        return {"notes": [AgentNote(
+            agent="executor", content="Empty plan — no steps to execute.",
+        )]}
 
-    summary = ", ".join(
-        f"{r.step.remediation_action.value}={'ok' if r.ok else 'FAIL'}"
-        for r in step_results
-    )
-    note = AgentNote(
-        agent="executor",
-        content=f"Executed {len(step_results)} step(s): {summary}",
-    )
+    step = steps[idx]
+    result = await execute_step(step, ds, service)
     log.info(
         "executor.done",
         incident_id=state["incident_id"],
-        steps=len(step_results),
+        step=step.remediation_action,
+        ok=result.ok,
     )
-    return {
-        "notes": [note],
-        "executor_result": step_results,
-        "remediation_applied_at": datetime.now(UTC),
-        "patch_reports": patch_reports,   # list — the Annotated[..., add] reducer extends
+
+    # The `add` reducer extends state's executor_result by [result] — do NOT
+    # read state's list and append (that would double-extend via the reducer).
+    delta: dict[str, object] = {
+        "executor_result": [result],
+        "next_step_index": idx + 1,
     }
 
-def after_executor_routing(state: IncidentState) -> str:
-    """Route after the executor runs the plan's steps.
+    # On the last step, also emit an end-of-plan summary note + timestamp.
+    # The summary spans only THIS plan's slice (the tail of the accumulated
+    # list whose length matches this plan's step count).
+    if idx == len(steps) - 1:
+        plan_results = ((state.get("executor_result") or []) + [result])[-len(steps):]
+        summary = ", ".join(
+            f"{r.step.remediation_action.value}={'ok' if r.ok else 'FAIL'}"
+            for r in plan_results
+        )
+        delta["notes"] = [AgentNote(
+            agent="executor",
+            content=f"Executed {len(plan_results)} step(s): {summary}",
+        )]
+        delta["remediation_applied_at"] = datetime.now(UTC)
 
-    A code patch was attempted → sandbox_verifier (its verification + retry
-    loop live on the sandbox path, not the planner loop). Otherwise: a critical
-    step failed → planner (replan); an escalate ran → finalize; else → verifier.
+    return delta
+
+def after_step_routing(state: IncidentState) -> str:
+    """Shared step-router (Phase 14a). Called from THREE places:
+      - after executor (per-step loop continues)
+      - after code_patch (sub-graph returned; advance to next step)
+      - after human_approval_plan, on approve (dispatch step 0 correctly —
+        a plan that starts with APPLY_CODE_PATCH would otherwise hit executor
+        and crash; see after_human_plan_routing's delegation below).
+
+    The name is `after_step_routing`, not `after_executor_routing`, because
+    the unit it routes on is one PLAN STEP — independent of which node just
+    produced it. Naming it after the executor would conflate the trigger
+    with the responsibility.
+
+    Decisions (in order):
+      - no plan / empty results  → finalize
+      - last step was critical+failed → planner (replan)
+      - last step was ESCALATE → finalize (we honoured the escalate)
+      - next_step_index past the end → verifier (prod-verify the remediation)
+      - next step is APPLY_CODE_PATCH → code_patch (sub-graph dispatch)
+      - next step is anything else → executor (per-step loop continues)
     """
+    plan = state.get("remediation_plan")
+    if plan is None:
+        return "finalize"
+
     results = state.get("executor_result") or []
-    if not results:
-        # Nothing ran (exhausted/empty) — end the incident.
-        return "finalize"
-    # A code patch was attempted → its differential verification owns the next
-    # step (even if the patch step itself failed — sandbox_verifier reports it
-    # and the retry loop re-runs code_fixer).
-    if state.get("patch_reports"):
-        log.info("after_executor.code_patch_to_sandbox", incident_id=state["incident_id"])
-        return "sandbox_verifier"
-    last = results[-1]
-    if not last.ok and last.step.critical:
-        log.info("after_executor.critical_failure_replan", incident_id=state["incident_id"])
-        return "planner"
-    # Check what ACTUALLY ran (not the plan): a critical-fail break can skip a
-    # trailing escalate step. any() — a bare genexp in `if` is always truthy.
-    if any(r.step.remediation_action == RemediationAction.ESCALATE for r in results):
-        return "finalize"
-    return "verifier"
+    if results:
+        last = results[-1]
+        # Critical-fail on the most recent step → replan
+        if not last.ok and last.step.critical:
+            log.info("after_executor.critical_failure_replan",
+                     incident_id=state["incident_id"])
+            return "planner"
+        # An ESCALATE step actually ran → finalize, don't keep going
+        if last.step.remediation_action == RemediationAction.ESCALATE:
+            return "finalize"
+
+    next_step_index = state.get("next_step_index", 0)
+    steps = plan.remediation_steps
+
+    # Done with this plan → prod-verify (Phase 12 verifier reused for prod recovery)
+    if next_step_index >= len(steps):
+        return "verifier"
+
+    # Peek at the NEXT step to dispatch
+    next_step = steps[next_step_index]
+    if next_step.remediation_action == RemediationAction.APPLY_CODE_PATCH:
+        return "code_patch"
+    return "executor"
 
 
 def after_human_rca_routing(state: IncidentState) -> str:
@@ -231,9 +245,10 @@ def after_human_rca_routing(state: IncidentState) -> str:
 
 
 def after_human_plan_routing(state: IncidentState) -> str:
-    """Plan approval gate: approved → executor; anything else → finalize."""
+    """Plan approval gate: approved → shared step-router (so the FIRST step is
+    dispatched correctly — code_patch vs executor); rejected → finalize."""
     if state.get("human_decision_plan") == "approved":
         log.info("after_human_plan.approved", incident_id=state["incident_id"])
-        return "executor"
+        return after_step_routing(state)   # shared dispatch — handles step 0 = APPLY_CODE_PATCH
     log.info("after_human_plan.rejected", incident_id=state["incident_id"])
     return "finalize"

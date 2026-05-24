@@ -81,6 +81,10 @@ Produce the remediation runbook."""
     return {
         "remediation_plan": plan,
         "remediation_attempts": attempts + 1,
+        # Reset the step pointer EVERY plan (fresh or replan). Otherwise a
+        # replan inherits the prior plan's pointer mid-list — IndexError on a
+        # shorter new plan, skipped steps on a longer one.
+        "next_step_index": 0,
         "notes": [note],
     }
 

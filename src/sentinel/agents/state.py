@@ -7,6 +7,11 @@ from uuid import uuid4
 from pydantic import BaseModel, Field
 from typing_extensions import TypedDict
 
+# Import from the sub-graph's STATE module (leaf — no parent imports),
+# NOT from `sentinel.subgraph.codepatch` (the package __init__.py pulls in
+# graph.py, which imports IncidentState from THIS file → cycle).
+from sentinel.subgraph.codepatch.state import CodePatchResult
+
 
 class Severity(StrEnum):
     CRITICAL = "critical"
@@ -125,20 +130,12 @@ class StepResult(BaseModel):
 class VerificationResult(BaseModel):
     verified:bool
     verdict:str
-    
-class PatchReport(BaseModel):
-    cc_session_id: str = ""
-    summary: str                       # CC's final prose — what changed and why
-    files_touched: list[str]           # read deterministically from git
-    commit_sha: str                    # read deterministically from git
-    tokens_used: int | None = None
-    wall_time_seconds: float | None = None
-    tools_used: list[str] | None = None
-    
-class PatchVerification(BaseModel):
-    ok:bool
-    description:str
-    
+
+# NOTE — PatchReport / PatchVerification used to live here. They now live
+# INSIDE the code-patch sub-graph (sentinel.subgraph.codepatch.state) because
+# they're sub-graph-internal accumulators, not parent state. The parent only
+# sees the cohesive CodePatchResult (one summary, not the per-attempt lists).
+
 class PostMortemReport(BaseModel):
     thinking_process: str = Field(description="Step-by-step reasoning over the evidence. Think BEFORE the conclusion fields.")
     title: str                       # "Crash Loop in api-gateway"
@@ -176,8 +173,14 @@ class IncidentState(TypedDict):
     verification : NotRequired[VerificationResult | None]
     remediation_attempts: NotRequired[int]
     remediation_applied_at: NotRequired[datetime | None]
-    patch_reports : Annotated[list[PatchReport],add]
-    patch_verification : Annotated[list[PatchVerification],add]
+    # Phase 14a — step pointer for Option-3 per-step execution. Executor /
+    # code_patch wrapper bump it; planner RESETS to 0 on every fresh plan.
+    # No reducer — last-write-wins is what we want (executor + planner never
+    # write to it in the same superstep).
+    next_step_index: NotRequired[int]
+    # Sub-graph hands back one cohesive result; the per-attempt PatchReports /
+    # PatchVerifications stay private inside the sub-graph.
+    code_patch_result: NotRequired[CodePatchResult | None]
     outcome: NotRequired[IncidentOutcome | None]
     human_decision: NotRequired[str]
     human_decision_plan: NotRequired[str]

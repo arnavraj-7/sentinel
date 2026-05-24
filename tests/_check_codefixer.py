@@ -1,4 +1,7 @@
-"""Phase 16a standalone check — drives `code_fixer` against the dummy repo.
+"""Phase 16a/14a standalone check — drives the code-patch sub-graph node
+directly (NOT via the full incident graph). After Phase 14a the entry point
+is the sub-graph node `code_fixer_node`, which takes the FLAT CodePatchState
+the wrapper would normally build from parent state.
 
 NOT a pytest test (leading underscore skips collection). This makes REAL
 Claude Code SDK calls — it costs money, needs SDK auth, and clones a repo.
@@ -12,25 +15,17 @@ Prerequisites:
 Run (from the sentinel repo root):
   .venv\\Scripts\\python.exe tests\\_check_codefixer.py
 
-Expected: code_fixer clones the repo, CC locates the KeyError in
+Expected: code_fixer_node clones the repo, CC locates the KeyError in
 calculate_total (order["discount"] -> order.get("discount", 0.0)), runs the
-tests green, commits, and returns a PatchReport with a real commit_sha and
-files_touched == ["app.py"].
+tests green, commits, and the returned delta contains one PatchReport with a
+real commit_sha and files_touched == ["app.py"].
 """
 
 import asyncio
 
-from sentinel.agents.code_fixer import code_fixer
-from sentinel.agents.state import (
-    IncidentInput,
-    InvestigatorFindings,
-    RemediationAction,
-    RemediationPlan,
-    RemediationStep,
-    RootCauseFindings,
-    Severity,
-)
 from sentinel.config import settings
+from sentinel.subgraph.codepatch.codefixer import code_fixer_node
+from sentinel.subgraph.codepatch.state import CodePatchState
 
 if not settings.github_prod_link:
     raise SystemExit(
@@ -39,83 +34,48 @@ if not settings.github_prod_link:
     )
 
 
-def _fake_state() -> dict:
-    """A hand-built IncidentState carrying exactly what code_fixer reads:
-    incident_id, investigator_findings, root_cause_findings, remediation_plan,
-    patch_reports. The alert `message` stays symptom-level (the leak-safe
-    testing rule) — the actual diagnosis lives in the derived findings.
-    """
+def _fake_state() -> CodePatchState:
+    """A hand-built CodePatchState carrying exactly the FLAT inputs the
+    wrapper would normally extract from parent IncidentState. Symptom-level
+    alert phrasing is gone here because the sub-graph already gets the
+    diagnosed root cause — these are derived findings, not the raw alert."""
     return {
         "incident_id": "inc_codefix_test",
-        "input": IncidentInput(
-            alert_id="alert-codefix-test",
-            service="order-pricing",
-            message="users reporting failures when placing orders",
-            severity=Severity.HIGH,
-        ),
-        "notes": [],
-        "investigator_findings": [
-            InvestigatorFindings(
-                thinking_process=(
-                    "The traceback shows a KeyError raised inside calculate_total in app.py."
-                ),
-                agent="log_detective",
-                focus="KeyError in calculate_total",
-                summary=(
-                    "calculate_total in app.py raises KeyError: 'discount' for "
-                    "orders that omit the optional discount field."
-                ),
-                evidence=[
-                    'Traceback (most recent call last): File "app.py", in calculate_total',
-                    '    discount = order["discount"]',
-                    "KeyError: 'discount'",
-                ],
-                confidence=1.0,
-            ),
+        "log_evidence": [
+            'Traceback (most recent call last): File "app.py", in calculate_total',
+            '    discount = order["discount"]',
+            "KeyError: 'discount'",
         ],
-        "root_cause_findings": RootCauseFindings(
-            thinking_process=(
-                "calculate_total reads order['discount'] directly. The docstring "
-                "states discount is optional, but the code requires it — orders "
-                "without that key crash with KeyError."
-            ),
-            root_cause=(
-                "calculate_total in app.py accesses order['discount'] without a "
-                "guard, raising KeyError for orders that have no discount."
-            ),
-            contributing_factors=[
-                "The optional discount field has no default in calculate_total.",
-            ],
-            confidence=1.0,
-            recommended_fix=(
-                "Use order.get('discount', 0.0) so a missing discount defaults "
-                "to zero, matching the documented optional behaviour."
-            ),
+        "log_summary": (
+            "calculate_total in app.py raises KeyError: 'discount' for "
+            "orders that omit the optional discount field."
         ),
-        "remediation_plan": RemediationPlan(
-            thinking_process="The failure is a code defect — dispatch to the code fixer.",
-            remediation_steps=[
-                RemediationStep(
-                    remediation_action=RemediationAction.APPLY_CODE_PATCH,
-                    critical=True,
-                    description=(
-                        "Fix the unguarded order['discount'] access in "
-                        "calculate_total so a missing discount defaults to 0.0."
-                    ),
-                ),
-            ],
+        "root_cause": (
+            "calculate_total in app.py accesses order['discount'] without a "
+            "guard, raising KeyError for orders that have no discount."
         ),
-        "executor_result": [],
+        "recommended_fix": (
+            "Use order.get('discount', 0.0) so a missing discount defaults "
+            "to zero, matching the documented optional behaviour."
+        ),
+        "patch_step_description": (
+            "Fix the unguarded order['discount'] access in calculate_total "
+            "so a missing discount defaults to 0.0."
+        ),
         "patch_reports": [],
-        "done": False,
+        "patch_verifications": [],
     }
 
 
 async def main() -> None:
     print(f"Target repo: {settings.github_prod_link}")
-    print("Running code_fixer — real Claude Code SDK call, this may take a few minutes...\n")
+    print("Running code_fixer_node — real Claude Code SDK call, this may take a few minutes...\n")
 
-    report = await code_fixer(_fake_state())
+    delta = await code_fixer_node(_fake_state())
+    reports = delta.get("patch_reports") or []
+    if not reports:
+        raise SystemExit("FATAL: code_fixer_node returned no patch_reports — should always return one.")
+    report = reports[-1]
 
     print("=" * 60)
     print("PatchReport")
@@ -129,7 +89,7 @@ async def main() -> None:
     print()
 
     if report.commit_sha:
-        print("RESULT: code_fixer produced a real commit. Inspect it with:")
+        print("RESULT: code_fixer_node produced a real commit. Inspect it with:")
         print(f"  git -C <sandbox-dir> show {report.commit_sha}")
     else:
         print("RESULT: no commit produced — see the summary above for the failure reason.")

@@ -12,27 +12,28 @@ from sentinel.agents.analyst import (
 from sentinel.agents.finalize import finalize_node
 from sentinel.agents.scribe import post_mortem_node
 from sentinel.agents.executor import (
-    after_executor_routing,
-    human_approval_rca_node,
+    after_human_plan_routing,
     after_human_rca_routing,
+    after_step_routing,
     executor_node,
     human_approval_plan_node,
-    after_human_plan_routing,
+    human_approval_rca_node,
 )
 from sentinel.agents.investigators import (
     log_detective_node,
     metric_analyst_node,
     topology_mapper_node,
 )
+from sentinel.agents.planner import after_planner_routing, planner_node
 from sentinel.agents.state import IncidentState
 from sentinel.agents.supervisor import supervisor_node
 from sentinel.agents.triager import triager_node
-from sentinel.agents.planner import after_planner_routing, planner_node
 from sentinel.agents.verifier import after_verify_routing, verifier_node
-from sentinel.agents.code_fixer import (
-    after_sandbox_verifier_routing,
-    sandbox_verifier_node,
-)
+# Sub-graph: import the wrapper from the leaf module, NOT from the package
+# __init__.py. The __init__.py is intentionally empty to avoid a circular
+# import (see subgraph/codepatch/__init__.py for the full explanation).
+from sentinel.subgraph.codepatch.graph import code_patch_node
+
 IncidentGraph = CompiledStateGraph[IncidentState, Any, IncidentState, IncidentState]
 
 
@@ -49,11 +50,15 @@ def build_graph(checkpointer: AsyncSqliteSaver) -> IncidentGraph:
     builder.add_node("root_cause_analyst", root_cause_analyst_node)
     builder.add_node("critic", critic_node)
     builder.add_node("human_approval_rca", human_approval_rca_node)
-    builder.add_node("human_approval_plan",human_approval_plan_node)
-    builder.add_node("planner",planner_node)
-    builder.add_node("verifier",verifier_node)
+    builder.add_node("human_approval_plan", human_approval_plan_node)
+    builder.add_node("planner", planner_node)
+    builder.add_node("verifier", verifier_node)
     builder.add_node("executor", executor_node)
-    builder.add_node("sandbox_verifier", sandbox_verifier_node)
+    # Phase 14a — code-patch sub-graph registered as ONE parent node. The
+    # wrapper extracts inputs, invokes the compiled sub-graph, translates the
+    # output back into a parent delta (code_patch_result + StepResult +
+    # next_step_index bump). The parent never sees the sub-graph's internals.
+    builder.add_node("code_patch", code_patch_node)
     builder.add_node("finalize", finalize_node)
     builder.add_node("post_mortem", post_mortem_node)
 
@@ -72,13 +77,23 @@ def build_graph(checkpointer: AsyncSqliteSaver) -> IncidentGraph:
 
     # HITL — approved → planner; rejected → finalize
     builder.add_conditional_edges("human_approval_rca", after_human_rca_routing)
-    # Phase 12 self-healing loop: planner → HITL → executor → verifier, with replan
+
+    # Phase 12 self-healing loop + Phase 14a per-step dispatch
+    #   planner → after_planner_routing → (human_approval_plan | executor | finalize)
+    #   human_approval_plan → after_human_plan_routing
+    #         approved → after_step_routing  (so step 0 dispatches correctly)
+    #         rejected → finalize
+    #   executor   → after_step_routing  (loop continues per-step)
+    #   code_patch → after_step_routing  (sub-graph returns; step pointer was
+    #                already advanced inside the wrapper, so the router peeks
+    #                the NEXT step — same logic as after the executor.)
+    # One router serves three triggers because the routing decision depends on
+    # the STEP just completed, not on which node ran it.
     builder.add_conditional_edges("planner", after_planner_routing)
-    builder.add_conditional_edges("human_approval_plan",after_human_plan_routing)
-    builder.add_conditional_edges("executor", after_executor_routing)
-    # Code-patch path: executor → sandbox_verifier → (verified) finalize
-    #                                              → (failed) executor retry, bounded
-    builder.add_conditional_edges("sandbox_verifier", after_sandbox_verifier_routing)
+    builder.add_conditional_edges("human_approval_plan", after_human_plan_routing)
+    builder.add_conditional_edges("executor", after_step_routing)
+    builder.add_conditional_edges("code_patch", after_step_routing)
+
     builder.add_conditional_edges("verifier", after_verify_routing)
     builder.add_edge("finalize", "post_mortem")
     builder.add_edge("post_mortem", END)
