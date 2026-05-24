@@ -103,9 +103,12 @@ async def sandbox_verifier_node(state: CodePatchState) -> dict[str, object]:
         )
     else:  # fix_ok and parent_ok
         description = (
-            "FAKE TEST: the suite passes even against the UNFIXED code — no "
-            f"test actually catches the bug.\n{parent_out}"
-        )
+        "FAKE TEST: the suite passes even against the UNFIXED code — no test "
+        f"actually catches the bug.\nSuspect test files (the ones you "
+        f"changed/added that all pass against unfixed code):\n"
+        + "\n".join(f"  - {t}" for t in changed_tests)
+        + f"\n\nPytest output for reference:\n{parent_out}"
+    )
 
     log.info("sandbox_verifier.done", incident_id=incident_id, verified=verified)
     return {"patch_verifications": [PatchVerification(ok=verified, description=description)]}

@@ -91,9 +91,38 @@ async def code_fixer_node(state: CodePatchState) -> dict[str, object]:
 
 async def _produce_patch(state: CodePatchState, cwd: str) -> PatchReport:
     """Build the CC prompt from CodePatchState inputs, run the SDK, assemble
-    a PatchReport with deterministic git facts + CC's natural summary text."""
+    a PatchReport with deterministic git facts + CC's natural summary text.
+
+    Retry feedback: on every attempt past the first, prepend the previous
+    PatchVerification's description (FIX FAILED ... / FAKE TEST ...) to the
+    prompt. The SDK session is also resumed (so CC carries conversation
+    history), but the verdict itself is produced by the differential-test
+    gate OUTSIDE the CC session and is invisible to CC unless we inject it.
+    Without this block, CC would re-run blind — the session would remember
+    what IT did, not what the verifier concluded about it.
+    """
     log_evidence_block = "\n".join(state.get("log_evidence") or [])
-    user_content = f"""
+
+    # Retry feedback — only present on attempts past the first.
+    prior_verifs = state.get("patch_verifications") or []
+    feedback_block = ""
+    if prior_verifs:
+        last_verdict = prior_verifs[-1]
+        feedback_block = (
+            "PRIOR ATTEMPT REJECTED BY THE VERIFIER (an automated "
+            "differential-test gate). The rule: your tests MUST pass on your "
+            "fix AND MUST FAIL on the unfixed parent commit — a test that "
+            "passes on broken code does not catch a real bug.\n\n"
+            f"VERDICT:\n{last_verdict.description}\n\n"
+            "Address the verdict precisely. If the verdict is FIX FAILED, "
+            "your code change is wrong — re-examine the listed failures and "
+            "re-fix. If the verdict is FAKE TEST, your tests do not exercise "
+            "the bug — rewrite the listed test files so they FAIL against the "
+            "unfixed code. Commit again when fixed.\n"
+            "================================================================\n"
+        )
+
+    user_content = f"""{feedback_block}
 Log Evidence:
 {log_evidence_block}
 
