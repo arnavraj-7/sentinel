@@ -31,3 +31,11 @@ data/
 .idea/
 *.swp
 .DS_Store
+
+# Frontend build artifacts (gitignored at the frontend/.gitignore level too,
+# but listing here as a safeguard for tools that don't read nested .gitignore).
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/*.tsbuildinfo
+

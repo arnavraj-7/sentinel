@@ -1,0 +1,185 @@
+@import "tailwindcss";
+
+/* ── Theme tokens — premium dark/light ─────────────────────────────────────
+ * Two carefully tuned palettes. Dark is the default — most demo viewing
+ * happens against dark for the "operator console" feel. Tokens map to
+ * Tailwind utilities via @theme so `bg-bg`, `text-fg`, `border-line` etc.
+ * all just work. */
+
+:root {
+  /* Light */
+  --bg:         #fafaf9;       /* page background */
+  --bg-elev:    #ffffff;       /* card / panel surface */
+  --bg-subtle:  #f4f4f3;       /* subtle alternate (timeline rail bg) */
+  --fg:         #18181b;       /* primary text */
+  --fg-muted:   #52525b;       /* secondary text */
+  --fg-subtle:  #a1a1aa;       /* tertiary text, dividers */
+  --line:       #e4e4e7;       /* borders */
+  --line-strong: #d4d4d8;
+  --accent:     #2563eb;       /* primary action (blue-600) */
+  --accent-fg:  #ffffff;
+  --success:    #16a34a;       /* green */
+  --warning:    #d97706;       /* amber */
+  --danger:     #dc2626;       /* red */
+  --info:       #0284c7;       /* sky */
+  --running:    #2563eb;       /* same as accent — running pulse */
+  --code-bg:    #f4f4f3;
+  --shadow-card: 0 1px 2px rgba(0,0,0,0.04), 0 1px 3px rgba(0,0,0,0.06);
+  --shadow-elev: 0 4px 6px -1px rgba(0,0,0,0.07), 0 2px 4px -2px rgba(0,0,0,0.05);
+}
+
+.dark {
+  --bg:         #0a0a0b;
+  --bg-elev:    #121214;
+  --bg-subtle:  #18181b;
+  --fg:         #fafafa;
+  --fg-muted:   #a1a1aa;
+  --fg-subtle:  #52525b;
+  --line:       #27272a;
+  --line-strong: #3f3f46;
+  --accent:     #3b82f6;
+  --accent-fg:  #f8fafc;
+  --success:    #22c55e;
+  --warning:    #f59e0b;
+  --danger:     #ef4444;
+  --info:       #38bdf8;
+  --running:    #3b82f6;
+  --code-bg:    #18181b;
+  --shadow-card: 0 1px 2px rgba(0,0,0,0.25), 0 1px 3px rgba(0,0,0,0.35);
+  --shadow-elev: 0 8px 16px -4px rgba(0,0,0,0.45), 0 4px 8px -2px rgba(0,0,0,0.30);
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-bg-elev: var(--bg-elev);
+  --color-bg-subtle: var(--bg-subtle);
+  --color-fg: var(--fg);
+  --color-fg-muted: var(--fg-muted);
+  --color-fg-subtle: var(--fg-subtle);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-accent: var(--accent);
+  --color-accent-fg: var(--accent-fg);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-danger: var(--danger);
+  --color-info: var(--info);
+  --color-running: var(--running);
+  --color-code-bg: var(--code-bg);
+
+  --font-sans: var(--font-inter), system-ui, sans-serif;
+  --font-display: var(--font-space-grotesk), system-ui, sans-serif;
+  --font-mono: var(--font-jetbrains-mono), ui-monospace, monospace;
+}
+
+* {
+  border-color: var(--line);
+}
+
+html, body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-sans);
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+}
+
+body {
+  min-height: 100dvh;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Subtle grid backdrop — visible under low-density content */
+.grid-backdrop {
+  background-image:
+    linear-gradient(to right, color-mix(in srgb, var(--line) 50%, transparent) 1px, transparent 1px),
+    linear-gradient(to bottom, color-mix(in srgb, var(--line) 50%, transparent) 1px, transparent 1px);
+  background-size: 32px 32px;
+  background-position: -1px -1px;
+}
+
+/* Pulsing running indicator */
+@keyframes pulse-ring {
+  0%   { box-shadow: 0 0 0 0 color-mix(in srgb, var(--running) 50%, transparent); }
+  70%  { box-shadow: 0 0 0 6px color-mix(in srgb, var(--running) 0%, transparent); }
+  100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--running) 0%, transparent); }
+}
+.pulse-ring {
+  animation: pulse-ring 1.6s ease-out infinite;
+}
+
+/* Cursor blink for live progress text */
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0; }
+}
+.live-cursor::after {
+  content: "▍";
+  display: inline-block;
+  margin-left: 2px;
+  animation: blink 1s steps(1) infinite;
+  color: var(--accent);
+}
+
+/* Custom scrollbar — subtle */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--line-strong);
+  border-radius: 5px;
+  border: 2px solid var(--bg);
+}
+::-webkit-scrollbar-thumb:hover { background: var(--fg-subtle); }
+
+/* Prose tweaks for the post-mortem markdown */
+.prose-pm h1, .prose-pm h2, .prose-pm h3 {
+  font-family: var(--font-display);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--fg);
+}
+.prose-pm h1 { font-size: 1.5rem; margin-top: 0; margin-bottom: 1rem; }
+.prose-pm h2 { font-size: 1.125rem; margin-top: 1.5rem; margin-bottom: 0.5rem; }
+.prose-pm h3 { font-size: 1rem; margin-top: 1rem; margin-bottom: 0.5rem; color: var(--fg-muted); }
+.prose-pm p { color: var(--fg); margin: 0.5rem 0; line-height: 1.6; }
+.prose-pm ul, .prose-pm ol { padding-left: 1.5rem; margin: 0.5rem 0; }
+.prose-pm li { margin: 0.25rem 0; line-height: 1.6; }
+.prose-pm strong { color: var(--fg); font-weight: 600; }
+.prose-pm code {
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  background: var(--code-bg);
+  border: 1px solid var(--line);
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+.prose-pm pre {
+  background: var(--code-bg);
+  border: 1px solid var(--line);
+  padding: 0.75rem 1rem;
+  border-radius: 8px;
+  overflow-x: auto;
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+}
+.prose-pm pre code {
+  background: transparent;
+  border: 0;
+  padding: 0;
+}
+.prose-pm hr {
+  border: 0;
+  border-top: 1px solid var(--line);
+  margin: 1.5rem 0;
+}
+.prose-pm table {
+  border-collapse: collapse;
+  margin: 0.75rem 0;
+  font-size: 0.9em;
+}
+.prose-pm th, .prose-pm td {
+  border: 1px solid var(--line);
+  padding: 0.4rem 0.75rem;
+  text-align: left;
+}
+.prose-pm th { background: var(--bg-subtle); font-weight: 600; }
+.prose-pm a { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
