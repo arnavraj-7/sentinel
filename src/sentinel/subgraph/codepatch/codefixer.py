@@ -5,10 +5,20 @@ runs CC's agent loop, reads commit_sha/files_touched deterministically from
 git, returns a state delta that appends one PatchReport to the accumulator.
 Error path (CC didn't commit) returns a PatchReport with empty commit_sha —
 sandbox_verifier_node then detects it and reports CODE FIX FAILED.
-"""
-from claude_agent_sdk import query, ClaudeAgentOptions, ResultMessage
 
-from sentinel.config import settings
+Phase 17 — emits progress events via get_stream_writer() so the frontend
+can render CC's tool calls live (this node runs ~2 minutes; without these
+writers it's a black box on the UI). Writers are no-ops when astream is
+not running in stream_mode='custom', so the ainvoke path stays unchanged.
+"""
+from claude_agent_sdk import (
+    AssistantMessage,
+    ClaudeAgentOptions,
+    ResultMessage,
+    query,
+)
+from langgraph.config import get_stream_writer
+
 from sentinel.logging import log
 from sentinel.subgraph.codepatch.helpers import (
     create_sandbox_env,
@@ -72,12 +82,22 @@ async def code_fixer_node(state: CodePatchState) -> dict[str, object]:
     decide retry vs exhaust.
     """
     incident_id = state["incident_id"]
-    log.info("code_fixer_node.run", incident_id=incident_id)
+    writer = get_stream_writer()
+    attempt = len(state.get("patch_reports") or []) + 1
+    log.info("code_fixer_node.run", incident_id=incident_id, attempt=attempt)
+    writer({"agent": "code_fixer", "phase": "start", "attempt": attempt,
+            "message": f"Code fixer attempt #{attempt}"})
+
     try:
+        writer({"agent": "code_fixer", "phase": "sandbox.setup",
+                "message": "Preparing isolated sandbox"})
         cwd = await create_sandbox_env(incident_id)
+        writer({"agent": "code_fixer", "phase": "sandbox.sync",
+                "message": "Cloning / syncing prod repo"})
         await fetch_sync_code(cwd)
         report = await _produce_patch(state, cwd)
     except Exception as e:
+        writer({"agent": "code_fixer", "phase": "error", "message": str(e)})
         report = PatchReport(
             summary=(
                 f"Code fix could not be produced: {e}. "
@@ -86,6 +106,13 @@ async def code_fixer_node(state: CodePatchState) -> dict[str, object]:
             files_touched=[],
             commit_sha="",
         )
+
+    writer({"agent": "code_fixer", "phase": "done",
+            "commit_sha": report.commit_sha or None,
+            "files_touched": report.files_touched,
+            "message": (f"Committed {report.commit_sha[:8]}"
+                        if report.commit_sha
+                        else "No commit produced — fix failed")})
     return {"patch_reports": [report]}
 
 
@@ -149,8 +176,36 @@ Your task: {state["patch_step_description"]}
         opts["resume"] = session_id
     options = ClaudeAgentOptions(**opts)
 
+    writer = get_stream_writer()
+    writer({"agent": "code_fixer", "phase": "cc.invoking",
+            "message": "Claude Code is investigating",
+            "resume": bool(session_id)})
+
     result_message = None
     async for message in query(prompt=user_content, options=options):
+        # Forward CC's tool usage to the frontend so the 2-minute window
+        # becomes a live feed of "Reading services/pricing.py", "Bash:
+        # pytest -q", etc — exactly the fidelity Claude Code's own UI has.
+        if isinstance(message, AssistantMessage):
+            for block in (message.content or []):
+                if type(block).__name__ == "ToolUseBlock":
+                    tool_name = getattr(block, "name", "?")
+                    tool_input = getattr(block, "input", {}) or {}
+                    target = (
+                        tool_input.get("file_path")
+                        or tool_input.get("pattern")
+                        or tool_input.get("command")
+                        or tool_input.get("path")
+                        or ""
+                    )
+                    target_str = str(target)
+                    writer({
+                        "agent": "code_fixer",
+                        "phase": "cc.tool",
+                        "tool": tool_name,
+                        "target": target_str[:120],
+                        "message": f"CC: {tool_name}({target_str[:60]})" if target_str else f"CC: {tool_name}",
+                    })
         if isinstance(message, ResultMessage):
             result_message = message
             session_id = message.session_id
