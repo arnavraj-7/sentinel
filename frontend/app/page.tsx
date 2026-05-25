@@ -14,14 +14,18 @@ export default function LandingPage() {
         {/* Top section: hero on the left, animated demo preview on the right.
             Stacks vertically below lg; preview goes under the hero on tablet
             so the CTA stays above the fold. */}
-        <section className="grid grid-cols-1 items-stretch gap-6 lg:grid-cols-[1fr_minmax(0,560px)]">
+        <section className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[1fr_minmax(0,560px)]">
           <LandingHero />
           <DemoPreview />
         </section>
 
         <StatsStrip />
-        <HowItWorks />
-        <FeatureGrid />
+        <section id="how" className="scroll-mt-20">
+          <HowItWorks />
+        </section>
+        <section id="features" className="scroll-mt-20">
+          <FeatureGrid />
+        </section>
         <CTASection />
       </main>
     </div>

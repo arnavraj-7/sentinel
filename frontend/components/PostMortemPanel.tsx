@@ -28,7 +28,9 @@ export function PostMortemPanel({ markdown }: { markdown: string }) {
           {open ? <ChevronDown size={14} className="text-fg-muted" /> : <ChevronRight size={14} className="text-fg-muted" />}
         </Collapsible.Trigger>
         <Collapsible.Content>
-          <article className="prose-pm max-w-none px-6 py-5">
+          {/* Hard-capped height + scroll so a long post-mortem can't push
+              the rest of the page around. */}
+          <article className="prose-pm max-w-none overflow-y-auto px-6 py-5 max-h-[70vh]">
             <ReactMarkdown remarkPlugins={[remarkGfm]}>
               {markdown}
             </ReactMarkdown>

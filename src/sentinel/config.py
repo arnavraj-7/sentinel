@@ -19,7 +19,9 @@ class Settings(BaseSettings):
     sentinel_base_url: str = "http://localhost:8000"
     github_prod_link: str = "D:/projects/codefix-testrepo"
     test_command: str = "pytest"  # python test-runner module for sandbox verification
-    datasource: str = "gcp"  # prod default; eval overrides via SENTINEL_DATASOURCE=lab
+    # Default to lab so the local demo Just Works without env-var fiddling.
+    # Override to gcp in prod via SENTINEL_DATASOURCE=gcp.
+    datasource: str = "lab"
     max_healthy_error_rate_pct: float = 5.0
     max_healthy_latency_ms: float = 300.0
     min_healthy_uptime_s: float = 60.0

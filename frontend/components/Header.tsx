@@ -9,19 +9,24 @@ import { GithubIcon } from "./GithubIcon";
 import { ThemeToggle } from "./ThemeToggle";
 import { GITHUB_URL, PROJECT_NAME, PROJECT_TAGLINE } from "@/lib/config";
 
+// Nav items — anchor links on landing scroll to sections; the demo link
+// always goes to /demo. On /demo, the anchor links resolve via root /#.
 const NAV = [
-  { href: "/",     label: "Overview" },
-  { href: "/demo", label: "Live Demo" },
+  { href: "/",             label: "Overview" },
+  { href: "/#how",         label: "How it works" },
+  { href: "/#features",    label: "Features" },
+  { href: "/demo",         label: "Live Demo" },
 ];
 
 export function Header() {
   const pathname = usePathname();
+  const isDemo = pathname === "/demo";
 
   return (
     <header className="sticky top-0 z-40 border-b border-line bg-bg/80 backdrop-blur-md">
       <div className="mx-auto flex h-14 max-w-[1400px] items-center justify-between gap-4 px-6">
-        {/* Logo / brand */}
-        <Link href="/" className="flex items-center gap-2.5 group">
+        {/* Brand */}
+        <Link href="/" className="group flex items-center gap-2.5">
           <div
             className="
               flex h-7 w-7 items-center justify-center rounded-md
@@ -40,9 +45,12 @@ export function Header() {
         </Link>
 
         {/* Nav */}
-        <nav className="flex items-center gap-1">
+        <nav className="flex items-center gap-0.5">
           {NAV.map(item => {
-            const active = pathname === item.href;
+            const active =
+              item.href === pathname ||
+              (item.href === "/" && pathname === "/") ||
+              (item.href === "/demo" && pathname === "/demo");
             return (
               <Link
                 key={item.href}
@@ -70,9 +78,10 @@ export function Header() {
           })}
         </nav>
 
-        {/* Right cluster */}
+        {/* Right cluster — ConnectionStatus only on /demo (it'd just be
+            decoration on the landing where there's no live data flowing). */}
         <div className="flex items-center gap-2">
-          <ConnectionStatus />
+          {isDemo && <ConnectionStatus />}
           <a
             href={GITHUB_URL}
             target="_blank"

@@ -1,14 +1,20 @@
 "use client";
 
-// Inline animated demo of the live dashboard — a 24-second loop showing
-// Sentinel handling the `code_defect` scenario end-to-end. Portrait
-// layout (vertical flow with investigators as a horizontal trio) so it
-// fits naturally in the landing page's right column at ~520px width.
+// Inline animated demo — a 24-second loop showing Sentinel handling the
+// `code_defect` scenario end-to-end. Portrait layout to fit the landing
+// right column. Fixed total height + fixed trail height so the layout
+// NEVER jumps when new events arrive (the previous implementation had
+// the trail height growing with content, pushing everything around).
+//
+// Visual rules:
+//   - Idle nodes: outlined, faded
+//   - Running nodes: SOLID blue fill, white icon + label
+//   - Done nodes: SOLID green fill, white icon + label
+//   - Edges: solid colored line when active/done (no traveling dot — that
+//     was distracting; the node-fill alone reads as "this one is on now")
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
-import { ArrowRight, Play } from "lucide-react";
 
 import { AGENT_ICONS, AGENT_LABELS, FALLBACK_ICON } from "@/components/icons";
 
@@ -18,7 +24,6 @@ type NodeId =
 
 type Status = "idle" | "running" | "done";
 
-// Portrait layout — viewBox 500x460
 const NODES: Array<{ id: NodeId; x: number; y: number; w?: number }> = [
   { id: "triager",            x: 250, y:  35, w: 150 },
   { id: "log_detective",      x:  90, y: 130, w: 130 },
@@ -52,9 +57,9 @@ const SCRIPT: Scene[] = [
   { at: 0.5,  status: { triager: "running" },
               msg: { agent: "triager", phase: "classifying", message: "Reading alert + metrics" } },
   { at: 2.0,  status: { triager: "done", log_detective: "running", metric_analyst: "running", topology_mapper: "running" },
-              msg: { agent: "triager", phase: "classified", message: "Category: surge_5xx (98% conf)" } },
+              msg: { agent: "triager", phase: "classified", message: "surge_5xx (98% conf)" } },
   { at: 3.2,  msg: { agent: "log_detective", phase: "found",
-                     message: "UnboundLocalError /app/services/discounts.py:11" } },
+                     message: "UnboundLocalError discounts.py:11" } },
   { at: 4.4,  msg: { agent: "metric_analyst", phase: "analyzed",
                      message: "CPU 95% · errors 47% · p95 959ms" } },
   { at: 5.6,  msg: { agent: "topology_mapper", phase: "mapped",
@@ -65,10 +70,10 @@ const SCRIPT: Scene[] = [
               msg: { agent: "root_cause_analyst", phase: "diagnosed", message: "Missing tier branch (95% conf)" } },
   { at: 10.0, status: { planner: "done", code_patch: "running" },
               msg: { agent: "planner", phase: "planned", message: "Plan: apply_code_patch + verify" } },
-  { at: 11.0, msg: { agent: "code_patch", phase: "cc.tool", message: "CC: Read(services/discounts.py)" } },
+  { at: 11.0, msg: { agent: "code_patch", phase: "cc.tool", message: "CC: Read(discounts.py)" } },
   { at: 12.2, msg: { agent: "code_patch", phase: "cc.tool", message: "CC: Grep('apply_tier_discount')" } },
   { at: 13.4, msg: { agent: "code_patch", phase: "cc.tool", message: "CC: Edit — added else branch" } },
-  { at: 14.8, msg: { agent: "code_patch", phase: "cc.tool", message: "CC: Bash('pytest -q') · 15 passed" } },
+  { at: 14.8, msg: { agent: "code_patch", phase: "cc.tool", message: "CC: pytest -q · 15 passed" } },
   { at: 16.0, msg: { agent: "code_patch", phase: "diff-gate", message: "pass-on-fix ✓ · fail-on-parent ✓" } },
   { at: 17.4, status: { code_patch: "done", post_mortem: "running" },
               msg: { agent: "code_patch", phase: "verified", message: "VERIFIED · commit 58c8711" } },
@@ -77,11 +82,12 @@ const SCRIPT: Scene[] = [
 ];
 
 const CYCLE_SECONDS = 24;
+const MAX_TRAIL = 4;
 
 export function DemoPreview() {
   const [t, setT] = useState(0);
-
   const startedAtRef = useRef<number | null>(null);
+
   useEffect(() => {
     let raf = 0;
     const tick = (ts: number) => {
@@ -110,22 +116,21 @@ export function DemoPreview() {
   const trail = useMemo(() => {
     const events = SCRIPT.filter(s => s.msg && s.at <= t)
       .map(s => ({ at: s.at, ...s.msg! }));
-    return events.slice(-4);
+    return events.slice(-MAX_TRAIL);
   }, [t]);
 
-  // Cycle progress for the chrome strip
   const progress = (t / CYCLE_SECONDS) * 100;
 
   return (
+    // FIXED height — children sized to fit; trail is fixed-height with
+    // overflow hidden so new events don't push the layout around.
     <div className="
-      relative flex h-full flex-col overflow-hidden rounded-2xl border border-line bg-bg-elev
+      relative flex h-[580px] flex-col overflow-hidden
+      rounded-2xl border border-line bg-bg-elev
       shadow-[var(--shadow-card)]
     ">
-      {/* Chrome strip — looks like a real dashboard window */}
-      <div className="
-        flex items-center justify-between border-b border-line bg-bg-subtle
-        px-4 py-2
-      ">
+      {/* Chrome strip */}
+      <div className="flex items-center justify-between border-b border-line bg-bg-subtle px-4 py-2">
         <div className="flex items-center gap-2">
           <div className="flex items-center gap-1">
             <span className="h-2.5 w-2.5 rounded-full bg-danger/70" />
@@ -147,7 +152,6 @@ export function DemoPreview() {
         </div>
       </div>
 
-      {/* Progress bar — subtle, shows cycle position */}
       <div className="relative h-[2px] w-full bg-line/40">
         <div
           className="absolute inset-y-0 left-0 bg-gradient-to-r from-info to-accent transition-[width] duration-150"
@@ -155,28 +159,13 @@ export function DemoPreview() {
         />
       </div>
 
-      {/* Graph */}
-      <div className="px-4 pt-3">
+      {/* Graph — flex-1 so it owns the middle */}
+      <div className="flex flex-1 items-center justify-center px-4 py-2 overflow-hidden">
         <svg
           viewBox="0 0 500 460"
-          className="w-full"
+          className="h-full w-full"
           preserveAspectRatio="xMidYMid meet"
-          style={{ maxHeight: 420 }}
         >
-          <defs>
-            <filter id="dp-glow" x="-50%" y="-50%" width="200%" height="200%">
-              <feGaussianBlur stdDeviation="2.5" result="b" />
-              <feMerge>
-                <feMergeNode in="b" />
-                <feMergeNode in="SourceGraphic" />
-              </feMerge>
-            </filter>
-            <linearGradient id="dp-edge-grad" x1="0" x2="0" y1="0" y2="1">
-              <stop offset="0%"  stopColor="var(--info)" />
-              <stop offset="100%" stopColor="var(--accent)" />
-            </linearGradient>
-          </defs>
-
           {EDGES.map(([s, e]) => (
             <EdgeLine
               key={`${s}->${e}`}
@@ -186,22 +175,21 @@ export function DemoPreview() {
               targetStatus={statuses[e]}
             />
           ))}
-
           {NODES.map(n => (
             <NodeBadge key={n.id} node={n} status={statuses[n.id]} />
           ))}
         </svg>
       </div>
 
-      {/* Trail */}
-      <div className="mt-auto border-t border-line bg-bg-subtle px-4 py-3">
+      {/* Trail — FIXED height, items truncated to single line, overflow hidden */}
+      <div className="border-t border-line bg-bg-subtle px-4 py-3">
         <div className="mb-1.5 flex items-center gap-2">
           <span className="h-1.5 w-1.5 rounded-full bg-running" />
           <span className="font-mono text-[10px] uppercase tracking-wider text-fg-muted">
             Live trail
           </span>
         </div>
-        <ul className="space-y-1 min-h-[5.5rem]">
+        <ul className="h-[5rem] space-y-1 overflow-hidden">
           <AnimatePresence initial={false}>
             {trail.map(e => (
               <motion.li
@@ -210,32 +198,18 @@ export function DemoPreview() {
                 animate={{ opacity: 1, x: 0 }}
                 exit={{ opacity: 0 }}
                 transition={{ duration: 0.2 }}
-                className="flex items-center gap-2"
+                className="flex h-[18px] items-center gap-2"
               >
                 <TrailIcon name={e.agent} />
                 <span className="font-mono text-[9px] uppercase text-fg-subtle min-w-[88px] truncate">
                   {AGENT_LABELS[e.agent] ?? e.agent}
                 </span>
-                <span className="truncate text-[11px] text-fg">{e.message}</span>
+                <span className="flex-1 truncate text-[11px] text-fg">{e.message}</span>
               </motion.li>
             ))}
           </AnimatePresence>
         </ul>
       </div>
-
-      <Link
-        href="/demo"
-        className="
-          group flex items-center justify-center gap-1.5
-          border-t border-line bg-accent/10 px-4 py-2.5
-          text-xs font-semibold text-accent
-          transition-colors hover:bg-accent hover:text-accent-fg
-        "
-      >
-        <Play size={11} fill="currentColor" />
-        Run this for real
-        <ArrowRight size={13} className="transition-transform group-hover:translate-x-0.5" />
-      </Link>
     </div>
   );
 }
@@ -256,22 +230,25 @@ function NodeBadge({
   const rx = node.x - w / 2;
   const ry = node.y - h / 2;
 
+  // SOLID FILL when running/done. White text + icon. The fill IS the cue —
+  // no more travelling dot needed.
   const fill =
-    status === "running" ? "color-mix(in srgb, var(--running) 10%, var(--bg-elev))" :
-    status === "done"    ? "color-mix(in srgb, var(--success) 8%, var(--bg-elev))" :
-                           "var(--bg-elev)";
-  const stroke =
-    status === "running" ? "color-mix(in srgb, var(--running) 70%, transparent)" :
-    status === "done"    ? "color-mix(in srgb, var(--success) 55%, transparent)" :
-                           "var(--line)";
-  const accent =
     status === "running" ? "var(--running)" :
     status === "done"    ? "var(--success)" :
-                           "var(--fg-subtle)";
+                           "var(--bg-elev)";
+  const stroke =
+    status === "idle"    ? "var(--line)" :
+                           "transparent";
+  const textColor =
+    status === "idle"    ? "var(--fg)" :
+                           "#ffffff";
+  const iconColor =
+    status === "idle"    ? "var(--fg-subtle)" :
+                           "#ffffff";
 
   return (
     <motion.g
-      animate={{ opacity: status === "idle" ? 0.75 : 1 }}
+      animate={{ opacity: status === "idle" ? 0.7 : 1 }}
       initial={{ opacity: 0.6 }}
       transition={{ duration: 0.4 }}
     >
@@ -279,26 +256,21 @@ function NodeBadge({
         x={rx} y={ry} width={w} height={h} rx={8}
         fill={fill} stroke={stroke} strokeWidth={1.5}
       />
-      <circle cx={rx + 12} cy={node.y} r={3.5} fill={accent}>
-        {status === "running" && (
-          <animate attributeName="opacity" values="1;0.3;1" dur="1.4s" repeatCount="indefinite" />
-        )}
-      </circle>
-      <foreignObject x={rx + 22} y={ry + 8} width={20} height={20}>
+      <foreignObject x={rx + 12} y={ry + 8} width={20} height={20}>
         <div style={{
-          color: accent,
+          color: iconColor,
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
           height: 20,
         }}>
-          <Icon size={14} strokeWidth={2} />
+          <Icon size={14} strokeWidth={2.2} />
         </div>
       </foreignObject>
       <text
-        x={rx + 46}
+        x={rx + 38}
         y={node.y + 4}
-        fill="var(--fg)"
+        fill={textColor}
         fontSize={12}
         fontFamily="var(--font-display)"
         fontWeight={600}
@@ -317,8 +289,6 @@ function EdgeLine({
   sourceStatus: Status;
   targetStatus: Status;
 }) {
-  // Cubic bezier — straight-down by default, curves laterally for the
-  // fan-out / fan-in around the investigator trio.
   const dy = to.y - from.y;
   const c1 = { x: from.x, y: from.y + dy * 0.5 };
   const c2 = { x: to.x,   y: from.y + dy * 0.5 };
@@ -327,37 +297,24 @@ function EdgeLine({
   const active = targetStatus === "running";
   const done   = sourceStatus === "done" && targetStatus === "done";
 
+  // Edges keep their colour, but NO travelling dot (the user wanted that
+  // removed). The line colour alone communicates "this path is live."
   const stroke =
     active ? "var(--running)" :
     done   ? "var(--success)" :
              "var(--line-strong)";
 
-  const dash =
-    active ? "0" :
-    done   ? "0" :
-             "4 4";
+  const dash = active || done ? "0" : "4 4";
 
   return (
-    <>
-      <path
-        d={path}
-        fill="none"
-        stroke={stroke}
-        strokeWidth={active ? 2 : 1.25}
-        strokeDasharray={dash}
-        opacity={active || done ? 1 : 0.5}
-      />
-      {active && (
-        <>
-          <circle r={3.5} fill="url(#dp-edge-grad)" filter="url(#dp-glow)">
-            <animateMotion dur="1.2s" repeatCount="indefinite" rotate="auto" path={path} />
-          </circle>
-          <circle r={2} fill="var(--running)" opacity={0.4}>
-            <animateMotion dur="1.2s" begin="-0.18s" repeatCount="indefinite" rotate="auto" path={path} />
-          </circle>
-        </>
-      )}
-    </>
+    <path
+      d={path}
+      fill="none"
+      stroke={stroke}
+      strokeWidth={active ? 2 : 1.25}
+      strokeDasharray={dash}
+      opacity={active || done ? 1 : 0.5}
+    />
   );
 }
 

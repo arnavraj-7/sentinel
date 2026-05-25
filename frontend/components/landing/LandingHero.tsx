@@ -13,7 +13,7 @@ import { GITHUB_URL } from "@/lib/config";
 
 export function LandingHero() {
   return (
-    <section className="relative h-full overflow-hidden rounded-2xl border border-line bg-bg-elev px-7 py-8 shadow-[var(--shadow-card)] sm:px-9 sm:py-10">
+    <section className="relative overflow-hidden rounded-2xl border border-line bg-bg-elev px-7 py-7 shadow-[var(--shadow-card)] sm:px-9 sm:py-8">
       {/* Decorative gradient orbs for depth */}
       <div
         aria-hidden
