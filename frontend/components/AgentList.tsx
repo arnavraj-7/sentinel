@@ -9,20 +9,24 @@ import type { AgentStatus, IncidentState } from "@/lib/types";
 
 // Topological order — matches the graph layout, not the chronological
 // order things appeared (which would shuffle parallel investigators).
-const ORDER = [
-  "triager",
-  "log_detective",
-  "metric_analyst",
-  "topology_mapper",
-  "root_cause_analyst",
-  "critic",
-  "human_approval_rca",
-  "planner",
-  "human_approval_plan",
-  "executor",
-  "code_patch",
-  "verifier",
-  "post_mortem",
+// code_fixer + sandbox_verifier are sub-graph nodes (children of
+// code_patch); rendered slightly indented to communicate the hierarchy.
+const ORDER: Array<{ name: string; nested?: boolean }> = [
+  { name: "triager" },
+  { name: "log_detective" },
+  { name: "metric_analyst" },
+  { name: "topology_mapper" },
+  { name: "root_cause_analyst" },
+  { name: "critic" },
+  { name: "human_approval_rca" },
+  { name: "planner" },
+  { name: "human_approval_plan" },
+  { name: "executor" },
+  { name: "code_patch" },
+  { name: "code_fixer",       nested: true },
+  { name: "sandbox_verifier", nested: true },
+  { name: "verifier" },
+  { name: "post_mortem" },
 ];
 
 export function AgentList({
@@ -45,7 +49,7 @@ export function AgentList({
         </span>
       </div>
       <ul className="flex flex-col gap-0.5 p-2 overflow-y-auto min-h-0">
-        {ORDER.map(name => {
+        {ORDER.map(({ name, nested }) => {
           const agent = incident.agents[name];
           const status: AgentStatus = agent?.status ?? "idle";
           const Icon = AGENT_ICONS[name] ?? FALLBACK_ICON;
@@ -61,6 +65,7 @@ export function AgentList({
                   group flex w-full items-center gap-2.5 rounded-md px-2.5 py-2
                   text-left text-[12.5px] font-medium
                   transition-colors
+                  ${nested ? "ml-4" : ""}
                   ${isSelected
                     ? "bg-bg-subtle text-fg ring-1 ring-line-strong"
                     : "text-fg-muted hover:bg-bg-subtle hover:text-fg"}

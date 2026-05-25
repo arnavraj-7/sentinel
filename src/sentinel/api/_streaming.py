@@ -76,9 +76,21 @@ async def stream_graph_events(
     chunks instead, so don't collapse to one mode without re-shaping.
     """
     try:
-        async for mode, chunk in graph.astream(
-            inputs, config=config, stream_mode=["updates", "custom"]
+        # subgraphs=True is essential — without it, custom writer events
+        # and update events from inside the code-patch sub-graph
+        # (code_fixer, sandbox_verifier) are invisible to the parent's
+        # stream consumer, so the UI shows nothing during the 2-minute CC
+        # run. With subgraphs=True the yield shape becomes
+        # (namespace, mode, chunk) — namespace is () for root graph and
+        # (node_name:id,) for sub-graph events. We forward the chunk as
+        # the same SSE event type either way.
+        async for namespace, mode, chunk in graph.astream(
+            inputs,
+            config=config,
+            stream_mode=["updates", "custom"],
+            subgraphs=True,
         ):
+            _ = namespace  # not surfaced to the client today
             yield _sse_event(mode, chunk)
     except Exception as exc:  # noqa: BLE001 - surface any failure to the client
         yield _sse_event("error", {"message": str(exc), "type": type(exc).__name__})
