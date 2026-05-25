@@ -103,6 +103,18 @@ code_patch_subgraph = build_code_patch_subgraph()
 
 # ── parent-facing wrapper ────────────────────────────────────────────────────
 
+def _safe_emit(payload: dict[str, object]) -> None:
+    """Best-effort writer push. No-op when called outside a streaming
+    context (e.g. tests/_check_e2e_incident.py invokes the graph via
+    ainvoke — there's no stream channel to push to)."""
+    try:
+        from langgraph.config import get_stream_writer
+        writer = get_stream_writer()
+        writer(payload)
+    except Exception:
+        pass
+
+
 async def code_patch_node(parent_state: IncidentState) -> dict[str, object]:
     """Parent graph wrapper around the code-patch sub-graph.
 
@@ -150,6 +162,14 @@ async def code_patch_node(parent_state: IncidentState) -> dict[str, object]:
         "patch_verifications": [],
     }
     log.info("code_patch_node.invoke", incident_id=parent_state["incident_id"])
+    # Emit a parent-level writer event so the code_patch agent flips to
+    # 'running' in the UI immediately. Without this signal the user sees
+    # the row stuck idle for the 1-2 minutes the sub-graph takes.
+    _safe_emit({
+        "agent": "code_patch",
+        "phase": "start",
+        "message": "Dispatching to code-patch sub-graph (code_fixer → sandbox_verifier)",
+    })
 
     sub_result = await code_patch_subgraph.ainvoke(initial)
 
@@ -163,6 +183,16 @@ async def code_patch_node(parent_state: IncidentState) -> dict[str, object]:
         last_verification=verifs[-1] if verifs else None,
         attempts=len(reports),
     )
+
+    # Final writer event so the code_patch row flips to done/error with
+    # a meaningful one-liner.
+    _safe_emit({
+        "agent": "code_patch",
+        "phase": "done" if outcome == "verified" else "error",
+        "outcome": outcome,
+        "attempts": len(reports),
+        "message": f"sub-graph: {outcome} ({len(reports)} attempts)",
+    })
 
     # Option-3 bookkeeping: append a StepResult so the existing critical-fail
     # routing fires on a failed patch; increment the step pointer so the
