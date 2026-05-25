@@ -1,7 +1,23 @@
 import asyncio
 import sys
+import warnings
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+
+# Silence langgraph's "Deserializing unregistered type … from checkpoint"
+# pending-deprecation warnings. They fire once per Pydantic model we put
+# in state every time the checkpointer reads (which is constantly on
+# stream-mode astream). The deserialization succeeds — langgraph just
+# wants us to opt-in explicitly via allowed_msgpack_modules to silence
+# the warning. Filter them here so the server log stays readable.
+warnings.filterwarnings(
+    "ignore",
+    message="Deserializing unregistered type.*",
+)
+warnings.filterwarnings(
+    "ignore",
+    message=".*allowed_msgpack_modules.*",
+)
 
 # ── Windows asyncio policy fix (must run BEFORE uvicorn imports asyncio) ────
 # uvicorn on Windows defaults to WindowsSelectorEventLoopPolicy, which does

@@ -108,7 +108,7 @@ function AgentGraphInner({ incident, onNodeClick, selected }: Props) {
 
   return (
     <div className="
-      relative h-[600px] w-full overflow-hidden rounded-xl border border-line
+      relative h-full min-h-[600px] w-full overflow-hidden rounded-xl border border-line
       bg-bg-elev shadow-[var(--shadow-card)]
     ">
       <ReactFlow

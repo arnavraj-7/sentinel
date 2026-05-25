@@ -1,18 +1,25 @@
 "use client";
 
-import { useCallback, useReducer, useRef, useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import { ArrowDown } from "lucide-react";
+import { useCallback, useMemo, useReducer, useRef, useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
+import {
+  Activity,
+  BookText,
+  GitBranch,
+  ListChecks,
+} from "lucide-react";
 
 import { AgentDetail } from "@/components/AgentDetail";
 import { AgentGraph } from "@/components/AgentGraph";
+import { AgentList } from "@/components/AgentList";
 import { CodePatchPanel } from "@/components/CodePatchPanel";
 import { DemoLauncher } from "@/components/DemoLauncher";
 import { Header } from "@/components/Header";
-import { HITLOverlay } from "@/components/HITLOverlay";
 import { IncidentHeader } from "@/components/IncidentHeader";
-import { LiveTrail } from "@/components/LiveTrail";
 import { PostMortemPanel } from "@/components/PostMortemPanel";
+import { StickyHITLBanner } from "@/components/StickyHITLBanner";
+import { TabBar, type Tab } from "@/components/TabBar";
+import { TimelineFeed } from "@/components/TimelineFeed";
 import { API_BASE } from "@/lib/api";
 import { sseStream } from "@/lib/sse";
 import { INITIAL_INCIDENT, incidentReducer } from "@/lib/state";
@@ -25,19 +32,20 @@ import type {
   UpdateChunk,
 } from "@/lib/types";
 
+type TabId = "timeline" | "graph" | "patch" | "report";
+
 export default function DemoPage() {
   const [incident, dispatch] = useReducer(incidentReducer, INITIAL_INCIDENT);
   const [busy, setBusy] = useState(false);
   const [selectedNode, setSelectedNode] = useState<string | undefined>();
+  const [activeTab, setActiveTab] = useState<TabId>("timeline");
   const abortRef = useRef<AbortController | null>(null);
-  const liveRef = useRef<HTMLDivElement | null>(null);
 
   const pumpStream = useCallback(
     async (url: string, body: object) => {
       abortRef.current?.abort();
       const controller = new AbortController();
       abortRef.current = controller;
-
       setBusy(true);
       try {
         for await (const evt of sseStream(url, {
@@ -49,7 +57,6 @@ export default function DemoPage() {
           let parsed: unknown;
           try { parsed = JSON.parse(evt.data); }
           catch { parsed = evt.data; }
-
           switch (evt.event) {
             case "init":    dispatch({ type: "init",   payload: parsed as InitPayload }); break;
             case "updates":
@@ -78,10 +85,8 @@ export default function DemoPage() {
     (name: string) => {
       dispatch({ type: "reset" });
       setSelectedNode(undefined);
+      setActiveTab("timeline");
       void pumpStream(`${API_BASE}/scenarios/${name}/run`, {});
-      requestAnimationFrame(() => {
-        liveRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-      });
     },
     [pumpStream],
   );
@@ -97,103 +102,96 @@ export default function DemoPage() {
   const selectedAgent =
     selectedNode != null ? incident.agents[selectedNode] : undefined;
 
+  // Tabs reflect what's available — dot indicator when patch/report exist.
+  const tabs: Tab[] = useMemo(() => [
+    { id: "timeline", label: "Timeline",    Icon: Activity },
+    { id: "graph",    label: "Graph",       Icon: GitBranch },
+    { id: "patch",    label: "Code Patch",  Icon: ListChecks, hasContent: !!incident.codePatchResult },
+    { id: "report",   label: "Post-Mortem", Icon: BookText,   hasContent: !!incident.postMortem },
+  ], [incident.codePatchResult, incident.postMortem]);
+
   return (
     <div className="flex min-h-dvh flex-col bg-bg text-fg">
       <Header />
 
-      <main className="mx-auto w-full max-w-[1400px] flex-1 px-6 py-8">
-        {/* Demo launcher */}
+      <main className="mx-auto flex w-full max-w-[1400px] flex-1 flex-col gap-4 px-6 py-6">
+        {/* Scenario picker — always at the top so re-running is one click */}
         <section>
-          <div className="mb-4 flex items-end justify-between gap-4">
+          <div className="mb-3 flex items-end justify-between gap-4">
             <div>
-              <h1 className="font-display text-2xl font-semibold tracking-tight sm:text-3xl">
+              <h1 className="font-display text-xl font-semibold tracking-tight sm:text-2xl">
                 Live demo
               </h1>
-              <p className="mt-1 text-sm text-fg-muted">
-                Pick a failure mode — Sentinel injects it, fires the alert, and
-                the graph below comes alive. Click any node for full details.
+              <p className="mt-0.5 text-xs text-fg-muted sm:text-sm">
+                Pick a failure mode — Sentinel injects it and streams every agent live.
               </p>
             </div>
-            {incident.status !== "idle" && (
-              <button
-                type="button"
-                onClick={() => liveRef.current?.scrollIntoView({ behavior: "smooth" })}
-                className="
-                  hidden sm:inline-flex items-center gap-1.5 rounded-md
-                  border border-line bg-bg-elev px-3 py-1.5
-                  text-xs font-medium text-fg-muted
-                  transition-colors hover:text-fg
-                "
-              >
-                <ArrowDown size={12} />
-                Jump to graph
-              </button>
-            )}
           </div>
           <DemoLauncher onRun={runScenario} disabled={busy && incident.status === "streaming"} />
         </section>
 
-        {/* Graph + live trail */}
-        <div ref={liveRef} className="mt-10 scroll-mt-20 space-y-4">
-          <div className="flex items-end justify-between gap-4">
-            <div>
-              <h2 className="font-display text-xl font-semibold tracking-tight">
-                Agent graph
-              </h2>
-              <p className="mt-1 text-sm text-fg-muted">
-                Click any node for full details — thinking, findings, activity log.
-                Watch the connecting edges light up as control flows.
-              </p>
-            </div>
-            {incident.id && (
-              <span className="font-mono text-[11px] text-fg-muted">
-                {incident.id}
-              </span>
-            )}
-          </div>
+        {/* Incident status bar — appears when something is happening */}
+        {incident.status !== "idle" && <IncidentHeader incident={incident} />}
 
-          {incident.status !== "idle" && <IncidentHeader incident={incident} />}
+        {/* Sticky HITL — pinned to the top of the dashboard area */}
+        <AnimatePresence>
+          {incident.status === "paused" && incident.paused && (
+            <StickyHITLBanner
+              paused={incident.paused}
+              onDecision={respondHITL}
+              busy={busy}
+            />
+          )}
+        </AnimatePresence>
 
-          <AgentGraph
+        {/* Dashboard — left rail (agents) + tabbed center pane */}
+        <section className="
+          grid min-h-[640px] flex-1 grid-cols-1 gap-4
+          lg:grid-cols-[260px_1fr]
+        ">
+          <AgentList
             incident={incident}
-            onNodeClick={setSelectedNode}
+            onSelect={setSelectedNode}
             selected={selectedNode}
           />
 
-          <LiveTrail incident={incident} />
-        </div>
-
-        {/* HITL gate + artifacts */}
-        <AnimatePresence>
-          {(incident.status === "paused" || incident.codePatchResult || incident.postMortem) && (
-            <motion.section
-              key="bottom-cards"
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0 }}
-              className="mt-8 grid grid-cols-1 gap-6 lg:grid-cols-2"
-            >
-              {incident.status === "paused" && incident.paused && (
-                <HITLOverlay
-                  paused={incident.paused}
-                  onDecision={respondHITL}
-                  busy={busy}
-                />
-              )}
-              {incident.codePatchResult && (
-                <CodePatchPanel result={incident.codePatchResult} />
-              )}
-              {incident.postMortem && (
-                <div className="lg:col-span-2">
-                  <PostMortemPanel markdown={incident.postMortem} />
+          <div className="flex flex-col overflow-hidden rounded-xl border border-line bg-bg-elev shadow-[var(--shadow-card)]">
+            <TabBar tabs={tabs} active={activeTab} onChange={id => setActiveTab(id as TabId)} />
+            <div className="flex-1 overflow-hidden">
+              {activeTab === "timeline" && <TimelineFeed incident={incident} />}
+              {activeTab === "graph" && (
+                <div className="h-full p-3">
+                  <AgentGraph
+                    incident={incident}
+                    onNodeClick={setSelectedNode}
+                    selected={selectedNode}
+                  />
                 </div>
               )}
-            </motion.section>
-          )}
-        </AnimatePresence>
+              {activeTab === "patch" && (
+                incident.codePatchResult
+                  ? <div className="p-4 overflow-y-auto h-full"><CodePatchPanel result={incident.codePatchResult} /></div>
+                  : <EmptyTab label="Code patch will appear here once the sub-graph runs." />
+              )}
+              {activeTab === "report" && (
+                incident.postMortem
+                  ? <div className="p-4 overflow-y-auto h-full"><PostMortemPanel markdown={incident.postMortem} /></div>
+                  : <EmptyTab label="Post-mortem will appear here when the incident is finalized." />
+              )}
+            </div>
+          </div>
+        </section>
       </main>
 
       <AgentDetail agent={selectedAgent} onClose={() => setSelectedNode(undefined)} />
+    </div>
+  );
+}
+
+function EmptyTab({ label }: { label: string }) {
+  return (
+    <div className="flex h-full items-center justify-center p-8">
+      <p className="text-sm text-fg-muted">{label}</p>
     </div>
   );
 }
