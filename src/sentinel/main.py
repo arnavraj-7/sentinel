@@ -1,7 +1,24 @@
+import asyncio
+import sys
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from dotenv import load_dotenv
+# ── Windows asyncio policy fix (must run BEFORE uvicorn imports asyncio) ────
+# uvicorn on Windows defaults to WindowsSelectorEventLoopPolicy, which does
+# NOT support asyncio.create_subprocess_exec — every subprocess call raises
+# NotImplementedError() with an empty message. The code-patch sub-graph
+# needs subprocesses for both `git` (helpers.py) AND the Claude Code SDK
+# (which spawns the `claude` CLI under the hood). Force the Proactor policy
+# so subprocess.exec works.
+#
+# Diagnostic: the symptom was 5 patch attempts firing in ~20ms, each
+# producing "Code fix could not be produced (NotImplementedError: (no
+# message))." The empty message is asyncio's default when raising
+# NotImplementedError from the event loop's missing subprocess support.
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+
+from dotenv import load_dotenv  # noqa: E402
 
 # Load .env into os.environ BEFORE importing anything that reads env vars
 # (notably the langsmith SDK, which checks LANGSMITH_* on import).

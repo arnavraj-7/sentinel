@@ -13,7 +13,7 @@ import { GITHUB_URL } from "@/lib/config";
 
 export function LandingHero() {
   return (
-    <section className="relative h-full overflow-hidden rounded-3xl border border-line bg-bg-elev px-8 py-12 shadow-[var(--shadow-card)] sm:px-10 sm:py-14">
+    <section className="relative h-full overflow-hidden rounded-2xl border border-line bg-bg-elev px-7 py-8 shadow-[var(--shadow-card)] sm:px-9 sm:py-10">
       {/* Decorative gradient orbs for depth */}
       <div
         aria-hidden
@@ -48,8 +48,8 @@ export function LandingHero() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5, delay: 0.06 }}
           className="
-            mt-6 font-display text-3xl font-bold leading-[1.05] tracking-tight text-fg
-            sm:text-4xl xl:text-5xl
+            mt-5 font-display text-[28px] font-bold leading-[1.08] tracking-tight text-fg
+            sm:text-[32px] xl:text-[40px]
           "
         >
           An AI SRE that{" "}
@@ -63,7 +63,7 @@ export function LandingHero() {
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5, delay: 0.12 }}
-          className="mt-5 max-w-xl text-sm leading-relaxed text-fg-muted sm:text-base"
+          className="mt-4 max-w-xl text-[13.5px] leading-relaxed text-fg-muted sm:text-sm"
         >
           Sentinel ingests a symptom-level alert, fans out three investigators
           in parallel, synthesises a root cause with reflective critique,
@@ -76,7 +76,7 @@ export function LandingHero() {
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ duration: 0.5, delay: 0.18 }}
-          className="mt-8 flex flex-wrap items-center gap-3"
+          className="mt-6 flex flex-wrap items-center gap-2.5"
         >
           <Link
             href="/demo"
@@ -106,6 +106,30 @@ export function LandingHero() {
             View source
           </a>
         </motion.div>
+
+        {/* Small capability strip — fills the visual gap below the buttons
+            with content that earns its space (signals what's in the box). */}
+        <motion.dl
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 0.5, delay: 0.28 }}
+          className="mt-8 grid grid-cols-3 gap-4 border-t border-line pt-5 sm:gap-6"
+        >
+          {[
+            { v: "16", l: "Graph nodes" },
+            { v: "5",  l: "Demo scenarios" },
+            { v: "0",  l: "LLMs in verify loop" },
+          ].map(s => (
+            <div key={s.l}>
+              <div className="font-display text-2xl font-bold tracking-tight">
+                {s.v}
+              </div>
+              <div className="mt-0.5 font-mono text-[10px] uppercase tracking-wider text-fg-subtle">
+                {s.l}
+              </div>
+            </div>
+          ))}
+        </motion.dl>
       </div>
     </section>
   );

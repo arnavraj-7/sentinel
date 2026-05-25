@@ -1,17 +1,9 @@
 "use client";
 
-// Inline animated demo of the live dashboard — a 24-second loop that
-// shows Sentinel handling the `code_defect` scenario end-to-end:
-//   triager → 3 parallel investigators → RCA → planner → code_patch
-//   → post_mortem
-//
-// Pure CSS/SVG, no backend. Drives node statuses + trail events from a
-// time-based scene script. requestAnimationFrame ticks the clock; the
-// component derives current state from the scenes whose `at <= now`.
-//
-// This is what goes ON the landing page instead of a recorded demo video —
-// loads instantly, stays in sync with the real product, renders in the
-// user's theme.
+// Inline animated demo of the live dashboard — a 24-second loop showing
+// Sentinel handling the `code_defect` scenario end-to-end. Portrait
+// layout (vertical flow with investigators as a horizontal trio) so it
+// fits naturally in the landing page's right column at ~520px width.
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
@@ -20,23 +12,22 @@ import { ArrowRight, Play } from "lucide-react";
 
 import { AGENT_ICONS, AGENT_LABELS, FALLBACK_ICON } from "@/components/icons";
 
-// ── Graph layout (SVG coordinates) ──────────────────────────────────────────
-
 type NodeId =
   | "triager" | "log_detective" | "metric_analyst" | "topology_mapper"
   | "root_cause_analyst" | "planner" | "code_patch" | "post_mortem";
 
 type Status = "idle" | "running" | "done";
 
-const NODES: Array<{ id: NodeId; x: number; y: number }> = [
-  { id: "triager",            x:  60, y: 130 },
-  { id: "log_detective",      x: 240, y:  60 },
-  { id: "metric_analyst",     x: 240, y: 130 },
-  { id: "topology_mapper",    x: 240, y: 200 },
-  { id: "root_cause_analyst", x: 420, y: 130 },
-  { id: "planner",            x: 580, y: 130 },
-  { id: "code_patch",         x: 720, y: 130 },
-  { id: "post_mortem",        x: 860, y: 130 },
+// Portrait layout — viewBox 500x460
+const NODES: Array<{ id: NodeId; x: number; y: number; w?: number }> = [
+  { id: "triager",            x: 250, y:  35, w: 150 },
+  { id: "log_detective",      x:  90, y: 130, w: 130 },
+  { id: "metric_analyst",     x: 250, y: 130, w: 130 },
+  { id: "topology_mapper",    x: 410, y: 130, w: 130 },
+  { id: "root_cause_analyst", x: 250, y: 225, w: 170 },
+  { id: "planner",            x: 250, y: 295, w: 150 },
+  { id: "code_patch",         x: 250, y: 365, w: 150 },
+  { id: "post_mortem",        x: 250, y: 430, w: 150 },
 ];
 
 const EDGES: Array<[NodeId, NodeId]> = [
@@ -51,10 +42,8 @@ const EDGES: Array<[NodeId, NodeId]> = [
   ["code_patch", "post_mortem"],
 ];
 
-// ── Scene script — time-keyed status + trail events ─────────────────────────
-
 type Scene = {
-  at: number;                                  // seconds from cycle start
+  at: number;
   status?: Partial<Record<NodeId, Status>>;
   msg?: { agent: NodeId; phase: string; message: string };
 };
@@ -67,34 +56,31 @@ const SCRIPT: Scene[] = [
   { at: 3.2,  msg: { agent: "log_detective", phase: "found",
                      message: "UnboundLocalError /app/services/discounts.py:11" } },
   { at: 4.4,  msg: { agent: "metric_analyst", phase: "analyzed",
-                     message: "CPU 95% · errors 47% · p95 latency 959ms" } },
+                     message: "CPU 95% · errors 47% · p95 959ms" } },
   { at: 5.6,  msg: { agent: "topology_mapper", phase: "mapped",
-                     message: "Blast radius: payment-service (root) → checkout, orders" } },
+                     message: "Blast radius: checkout, orders" } },
   { at: 6.8,  status: { log_detective: "done", metric_analyst: "done", topology_mapper: "done", root_cause_analyst: "running" },
               msg: { agent: "root_cause_analyst", phase: "synthesizing", message: "Cross-referencing evidence" } },
   { at: 8.6,  status: { root_cause_analyst: "done", planner: "running" },
-              msg: { agent: "root_cause_analyst", phase: "diagnosed", message: "Missing tier branch in apply_tier_discount (95%)" } },
+              msg: { agent: "root_cause_analyst", phase: "diagnosed", message: "Missing tier branch (95% conf)" } },
   { at: 10.0, status: { planner: "done", code_patch: "running" },
-              msg: { agent: "planner", phase: "planned", message: "Plan: apply_code_patch → verify_health → verify_metrics" } },
+              msg: { agent: "planner", phase: "planned", message: "Plan: apply_code_patch + verify" } },
   { at: 11.0, msg: { agent: "code_patch", phase: "cc.tool", message: "CC: Read(services/discounts.py)" } },
   { at: 12.2, msg: { agent: "code_patch", phase: "cc.tool", message: "CC: Grep('apply_tier_discount')" } },
-  { at: 13.4, msg: { agent: "code_patch", phase: "cc.tool", message: "CC: Edit(services/discounts.py) — added else branch" } },
-  { at: 14.8, msg: { agent: "code_patch", phase: "cc.tool", message: "CC: Bash('pytest -q') — 15 passed" } },
+  { at: 13.4, msg: { agent: "code_patch", phase: "cc.tool", message: "CC: Edit — added else branch" } },
+  { at: 14.8, msg: { agent: "code_patch", phase: "cc.tool", message: "CC: Bash('pytest -q') · 15 passed" } },
   { at: 16.0, msg: { agent: "code_patch", phase: "diff-gate", message: "pass-on-fix ✓ · fail-on-parent ✓" } },
   { at: 17.4, status: { code_patch: "done", post_mortem: "running" },
-              msg: { agent: "code_patch", phase: "verified", message: "VERIFIED — commit 58c8711" } },
+              msg: { agent: "code_patch", phase: "verified", message: "VERIFIED · commit 58c8711" } },
   { at: 19.6, status: { post_mortem: "done" },
-              msg: { agent: "post_mortem", phase: "written", message: "Post-mortem written: payment-service.md" } },
+              msg: { agent: "post_mortem", phase: "written", message: "Post-mortem written" } },
 ];
 
 const CYCLE_SECONDS = 24;
 
-// ── The component ───────────────────────────────────────────────────────────
-
 export function DemoPreview() {
   const [t, setT] = useState(0);
 
-  // RAF clock — wraps every CYCLE_SECONDS
   const startedAtRef = useRef<number | null>(null);
   useEffect(() => {
     let raf = 0;
@@ -108,7 +94,6 @@ export function DemoPreview() {
     return () => cancelAnimationFrame(raf);
   }, []);
 
-  // Derive current node statuses from scenes with at <= t
   const statuses = useMemo<Record<NodeId, Status>>(() => {
     const out: Record<NodeId, Status> = {
       triager: "idle", log_detective: "idle", metric_analyst: "idle",
@@ -122,22 +107,24 @@ export function DemoPreview() {
     return out;
   }, [t]);
 
-  // Trail: last 5 messages whose at <= t
   const trail = useMemo(() => {
     const events = SCRIPT.filter(s => s.msg && s.at <= t)
       .map(s => ({ at: s.at, ...s.msg! }));
-    return events.slice(-5);
+    return events.slice(-4);
   }, [t]);
+
+  // Cycle progress for the chrome strip
+  const progress = (t / CYCLE_SECONDS) * 100;
 
   return (
     <div className="
-      relative overflow-hidden rounded-2xl border border-line bg-bg-elev
+      relative flex h-full flex-col overflow-hidden rounded-2xl border border-line bg-bg-elev
       shadow-[var(--shadow-card)]
     ">
-      {/* Header strip — looks like a live dashboard chrome */}
+      {/* Chrome strip — looks like a real dashboard window */}
       <div className="
         flex items-center justify-between border-b border-line bg-bg-subtle
-        px-5 py-2.5
+        px-4 py-2
       ">
         <div className="flex items-center gap-2">
           <div className="flex items-center gap-1">
@@ -160,29 +147,36 @@ export function DemoPreview() {
         </div>
       </div>
 
+      {/* Progress bar — subtle, shows cycle position */}
+      <div className="relative h-[2px] w-full bg-line/40">
+        <div
+          className="absolute inset-y-0 left-0 bg-gradient-to-r from-info to-accent transition-[width] duration-150"
+          style={{ width: `${progress}%` }}
+        />
+      </div>
+
       {/* Graph */}
-      <div className="px-5 pt-5">
+      <div className="px-4 pt-3">
         <svg
-          viewBox="0 0 940 260"
+          viewBox="0 0 500 460"
           className="w-full"
           preserveAspectRatio="xMidYMid meet"
-          style={{ maxHeight: 280 }}
+          style={{ maxHeight: 420 }}
         >
           <defs>
             <filter id="dp-glow" x="-50%" y="-50%" width="200%" height="200%">
-              <feGaussianBlur stdDeviation="3" result="b" />
+              <feGaussianBlur stdDeviation="2.5" result="b" />
               <feMerge>
                 <feMergeNode in="b" />
                 <feMergeNode in="SourceGraphic" />
               </feMerge>
             </filter>
-            <linearGradient id="dp-edge-grad" x1="0" x2="1">
+            <linearGradient id="dp-edge-grad" x1="0" x2="0" y1="0" y2="1">
               <stop offset="0%"  stopColor="var(--info)" />
               <stop offset="100%" stopColor="var(--accent)" />
             </linearGradient>
           </defs>
 
-          {/* Edges */}
           {EDGES.map(([s, e]) => (
             <EdgeLine
               key={`${s}->${e}`}
@@ -193,7 +187,6 @@ export function DemoPreview() {
             />
           ))}
 
-          {/* Nodes */}
           {NODES.map(n => (
             <NodeBadge key={n.id} node={n} status={statuses[n.id]} />
           ))}
@@ -201,74 +194,71 @@ export function DemoPreview() {
       </div>
 
       {/* Trail */}
-      <div className="border-t border-line bg-bg-subtle px-5 py-3">
-        <div className="flex items-center gap-2 pb-2">
+      <div className="mt-auto border-t border-line bg-bg-subtle px-4 py-3">
+        <div className="mb-1.5 flex items-center gap-2">
           <span className="h-1.5 w-1.5 rounded-full bg-running" />
           <span className="font-mono text-[10px] uppercase tracking-wider text-fg-muted">
             Live trail
           </span>
         </div>
-        <ul className="space-y-1.5 min-h-[6rem]">
+        <ul className="space-y-1 min-h-[5.5rem]">
           <AnimatePresence initial={false}>
             {trail.map(e => (
               <motion.li
                 key={`${e.at}-${e.agent}-${e.phase}`}
-                initial={{ opacity: 0, x: -8 }}
+                initial={{ opacity: 0, x: -6 }}
                 animate={{ opacity: 1, x: 0 }}
                 exit={{ opacity: 0 }}
-                transition={{ duration: 0.25 }}
-                className="flex items-center gap-2.5"
+                transition={{ duration: 0.2 }}
+                className="flex items-center gap-2"
               >
                 <TrailIcon name={e.agent} />
-                <span className="font-mono text-[10px] uppercase text-fg-subtle min-w-[140px] truncate">
+                <span className="font-mono text-[9px] uppercase text-fg-subtle min-w-[88px] truncate">
                   {AGENT_LABELS[e.agent] ?? e.agent}
                 </span>
-                <span className="font-mono text-[10px] uppercase text-fg-muted min-w-[80px] truncate">
-                  {e.phase}
-                </span>
-                <span className="truncate text-[12px] text-fg">{e.message}</span>
+                <span className="truncate text-[11px] text-fg">{e.message}</span>
               </motion.li>
             ))}
           </AnimatePresence>
         </ul>
       </div>
 
-      {/* CTA strip */}
-      <div className="border-t border-line bg-bg-elev px-5 py-3">
-        <Link
-          href="/demo"
-          className="
-            group inline-flex items-center gap-1.5 text-sm font-medium text-accent
-            transition-colors hover:text-fg
-          "
-        >
-          <Play size={11} fill="currentColor" />
-          Run this for real
-          <ArrowRight size={13} className="transition-transform group-hover:translate-x-0.5" />
-        </Link>
-      </div>
+      <Link
+        href="/demo"
+        className="
+          group flex items-center justify-center gap-1.5
+          border-t border-line bg-accent/10 px-4 py-2.5
+          text-xs font-semibold text-accent
+          transition-colors hover:bg-accent hover:text-accent-fg
+        "
+      >
+        <Play size={11} fill="currentColor" />
+        Run this for real
+        <ArrowRight size={13} className="transition-transform group-hover:translate-x-0.5" />
+      </Link>
     </div>
   );
 }
 
-// ── Sub-components ──────────────────────────────────────────────────────────
+// ── SVG sub-components ──────────────────────────────────────────────────────
 
 function NodeBadge({
   node,
   status,
 }: {
-  node: { id: NodeId; x: number; y: number };
+  node: { id: NodeId; x: number; y: number; w?: number };
   status: Status;
 }) {
   const Icon = AGENT_ICONS[node.id] ?? FALLBACK_ICON;
   const label = AGENT_LABELS[node.id] ?? node.id;
-  const w = 130, h = 36;
+  const w = node.w ?? 140;
+  const h = 36;
   const rx = node.x - w / 2;
   const ry = node.y - h / 2;
 
   const fill =
-    status === "running" ? "color-mix(in srgb, var(--running) 8%, var(--bg-elev))" :
-    status === "done"    ? "color-mix(in srgb, var(--success) 6%, var(--bg-elev))" :
+    status === "running" ? "color-mix(in srgb, var(--running) 10%, var(--bg-elev))" :
+    status === "done"    ? "color-mix(in srgb, var(--success) 8%, var(--bg-elev))" :
                            "var(--bg-elev)";
   const stroke =
     status === "running" ? "color-mix(in srgb, var(--running) 70%, transparent)" :
@@ -281,43 +271,35 @@ function NodeBadge({
 
   return (
     <motion.g
-      animate={{ opacity: 1, scale: 1 }}
-      initial={{ opacity: 0.6, scale: 0.96 }}
+      animate={{ opacity: status === "idle" ? 0.75 : 1 }}
+      initial={{ opacity: 0.6 }}
       transition={{ duration: 0.4 }}
-      style={{ originX: node.x, originY: node.y, transformBox: "fill-box", transformOrigin: "center" }}
     >
       <rect
-        x={rx}
-        y={ry}
-        width={w}
-        height={h}
-        rx={8}
-        fill={fill}
-        stroke={stroke}
-        strokeWidth={1.5}
+        x={rx} y={ry} width={w} height={h} rx={8}
+        fill={fill} stroke={stroke} strokeWidth={1.5}
       />
-      {/* Status dot */}
       <circle cx={rx + 12} cy={node.y} r={3.5} fill={accent}>
         {status === "running" && (
-          <animate
-            attributeName="opacity"
-            values="1;0.3;1"
-            dur="1.4s"
-            repeatCount="indefinite"
-          />
+          <animate attributeName="opacity" values="1;0.3;1" dur="1.4s" repeatCount="indefinite" />
         )}
       </circle>
-      {/* Icon (rendered via foreignObject for lucide compatibility — simpler: small icon SVG) */}
       <foreignObject x={rx + 22} y={ry + 8} width={20} height={20}>
-        <div style={{ color: accent, display: "flex", alignItems: "center", justifyContent: "center", height: 20 }}>
+        <div style={{
+          color: accent,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          height: 20,
+        }}>
           <Icon size={14} strokeWidth={2} />
         </div>
       </foreignObject>
       <text
-        x={rx + 44}
+        x={rx + 46}
         y={node.y + 4}
         fill="var(--fg)"
-        fontSize={11}
+        fontSize={12}
         fontFamily="var(--font-display)"
         fontWeight={600}
       >
@@ -335,11 +317,11 @@ function EdgeLine({
   sourceStatus: Status;
   targetStatus: Status;
 }) {
-  // Bezier curve between two nodes. Control points pulled along x for a
-  // gentle S-curve.
-  const dx = to.x - from.x;
-  const c1 = { x: from.x + dx * 0.5, y: from.y };
-  const c2 = { x: from.x + dx * 0.5, y: to.y };
+  // Cubic bezier — straight-down by default, curves laterally for the
+  // fan-out / fan-in around the investigator trio.
+  const dy = to.y - from.y;
+  const c1 = { x: from.x, y: from.y + dy * 0.5 };
+  const c2 = { x: to.x,   y: from.y + dy * 0.5 };
   const path = `M ${from.x} ${from.y} C ${c1.x} ${c1.y}, ${c2.x} ${c2.y}, ${to.x} ${to.y}`;
 
   const active = targetStatus === "running";
@@ -383,10 +365,10 @@ function TrailIcon({ name }: { name: NodeId }) {
   const Icon = AGENT_ICONS[name] ?? FALLBACK_ICON;
   return (
     <span className="
-      flex h-5 w-5 shrink-0 items-center justify-center rounded
+      flex h-4 w-4 shrink-0 items-center justify-center rounded
       bg-bg-elev text-accent
     ">
-      <Icon size={10} strokeWidth={2.5} />
+      <Icon size={9} strokeWidth={2.5} />
     </span>
   );
 }
