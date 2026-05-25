@@ -57,7 +57,21 @@ export function AgentList({
           const isSelected = selected === name;
 
           return (
-            <li key={name}>
+            // Indent on the LI so the selection ring + hover bg align
+            // with the indented button — otherwise the highlighted row
+            // appears wider than its siblings (image feedback).
+            <li
+              key={name}
+              className={`relative ${nested ? "pl-4" : ""}`}
+            >
+              {nested && (
+                // Tree-style vertical connector — left edge of nested
+                // rows links visually to the parent (code_patch).
+                <span
+                  aria-hidden
+                  className="absolute left-1.5 top-0 bottom-0 w-px bg-line"
+                />
+              )}
               <button
                 type="button"
                 onClick={() => onSelect(name)}
@@ -65,7 +79,6 @@ export function AgentList({
                   group flex w-full items-center gap-2.5 rounded-md px-2.5 py-2
                   text-left text-[12.5px] font-medium
                   transition-colors
-                  ${nested ? "ml-4" : ""}
                   ${isSelected
                     ? "bg-bg-subtle text-fg ring-1 ring-line-strong"
                     : "text-fg-muted hover:bg-bg-subtle hover:text-fg"}
