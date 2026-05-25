@@ -210,8 +210,9 @@ function PatchTabContent({ incident }: { incident: { codePatchResult?: unknown; 
   const hasSubgraphActivity =
     (incident.agents["code_fixer"]?.progress.length ?? 0) > 0 ||
     (incident.agents["sandbox_verifier"]?.progress.length ?? 0) > 0;
+  const hasResult = !!incident.codePatchResult;
 
-  if (!hasSubgraphActivity && !incident.codePatchResult) {
+  if (!hasSubgraphActivity && !hasResult) {
     return (
       <EmptyTab label="Code patch will appear here once the sub-graph runs." />
     );
@@ -219,11 +220,34 @@ function PatchTabContent({ incident }: { incident: { codePatchResult?: unknown; 
 
   return (
     <div className="flex h-full flex-col">
-      {/* Top half: live sub-graph progress (code_fixer + sandbox_verifier) */}
-      <div className="flex min-h-0 flex-1 flex-col border-b border-line">
-        <div className="border-b border-line bg-bg-subtle/40 px-4 py-2">
+      {/* TOP — result panel. The user's most-wanted view once the patch
+          lands; was buried at the bottom before. Capped at 55% with an
+          internal scroll so the activity feed below always has space. */}
+      {hasResult ? (
+        <div className="
+          max-h-[55%] shrink-0 overflow-y-auto border-b border-line p-4
+        ">
+          {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+          <CodePatchPanel result={incident.codePatchResult as any} />
+        </div>
+      ) : (
+        <div className="
+          shrink-0 border-b border-line bg-bg-subtle/40 px-4 py-3 text-center
+        ">
+          <span className="font-mono text-[10px] uppercase tracking-wider text-fg-subtle">
+            Result · pending — sub-graph in progress
+          </span>
+        </div>
+      )}
+
+      {/* BOTTOM — sub-graph activity feed. Always visible; this is what
+          the user watches during the 1-2 min CC run. */}
+      <div className="flex min-h-0 flex-1 flex-col">
+        <div className="
+          shrink-0 border-b border-line bg-bg-subtle/40 px-4 py-2
+        ">
           <span className="font-mono text-[10px] uppercase tracking-wider text-fg-muted">
-            Sub-graph live feed · code_fixer + sandbox_verifier
+            Sub-graph activity · code_fixer + sandbox_verifier
           </span>
         </div>
         <div className="min-h-0 flex-1 overflow-hidden">
@@ -238,20 +262,6 @@ function PatchTabContent({ incident }: { incident: { codePatchResult?: unknown; 
           />
         </div>
       </div>
-
-      {/* Bottom: result panel — only when codePatchResult lands */}
-      {incident.codePatchResult ? (
-        <div className="max-h-[50%] overflow-y-auto p-4">
-          {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-          <CodePatchPanel result={incident.codePatchResult as any} />
-        </div>
-      ) : (
-        <div className="border-t border-line bg-bg-subtle/40 px-4 py-3 text-center">
-          <span className="font-mono text-[10px] uppercase tracking-wider text-fg-subtle">
-            Result panel will appear here when the sub-graph completes
-          </span>
-        </div>
-      )}
     </div>
   );
 }
