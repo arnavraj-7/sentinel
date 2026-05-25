@@ -20,6 +20,10 @@ import { API_BASE } from "@/lib/api";
 type Props = {
   onRun: (name: string) => void;
   disabled: boolean;
+  /** When true, render as a compact horizontal pill row instead of the
+   *  full 5-card grid. Used on the /demo page once an incident is
+   *  running so the scenario picker doesn't eat half the viewport. */
+  compact?: boolean;
 };
 
 // Per-scenario visual identity — icon + tint. The prompt_injection one
@@ -52,7 +56,7 @@ const SCENARIO_META: Record<string, { Icon: LucideIcon; tint: string; tag: strin
   },
 };
 
-export function DemoLauncher({ onRun, disabled }: Props) {
+export function DemoLauncher({ onRun, disabled, compact = false }: Props) {
   const [scenarios, setScenarios] = useState<Scenario[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -102,6 +106,43 @@ $env:SENTINEL_DATASOURCE       = "lab"
       <div className="flex items-center gap-2 rounded-xl border border-line bg-bg-elev p-5 text-sm text-fg-muted">
         <Loader2 size={14} className="animate-spin" />
         Loading scenarios…
+      </div>
+    );
+  }
+
+  if (compact) {
+    return (
+      <div className="flex flex-wrap items-center gap-2">
+        {scenarios.map((s, idx) => {
+          const meta = SCENARIO_META[s.name] ?? {
+            Icon: Wrench,
+            tint: "border-line",
+            tag: "Demo",
+          };
+          const { Icon, tint } = meta;
+          return (
+            <motion.button
+              key={s.name}
+              type="button"
+              disabled={disabled}
+              onClick={() => onRun(s.name)}
+              initial={{ opacity: 0, y: 4 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.2, delay: idx * 0.03 }}
+              className={`
+                inline-flex items-center gap-1.5 rounded-md border
+                bg-gradient-to-br ${tint} px-2.5 py-1.5
+                text-[12px] font-medium text-fg
+                transition-all hover:-translate-y-0.5 hover:shadow
+                disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0
+              `}
+              title={s.description}
+            >
+              <Icon size={12} strokeWidth={2} className="demo-icon" />
+              {s.title.replace(/ — .*/, "")}
+            </motion.button>
+          );
+        })}
       </div>
     );
   }

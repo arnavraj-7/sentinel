@@ -119,19 +119,39 @@ export default function DemoPage() {
       <Header />
 
       <main className="mx-auto flex w-full max-w-[1400px] flex-1 min-h-0 flex-col gap-4 px-6 py-6">
-        {/* Scenario picker — fixed-height, doesn't scroll. */}
+        {/* Scenario picker — full grid when idle; compact pill row once
+            an incident is running so the dashboard gets the screen real
+            estate. */}
         <section className="shrink-0">
-          <div className="mb-3 flex items-end justify-between gap-4">
-            <div>
-              <h1 className="font-display text-xl font-semibold tracking-tight sm:text-2xl">
-                Live demo
-              </h1>
-              <p className="mt-0.5 text-xs text-fg-muted sm:text-sm">
-                Pick a failure mode — Sentinel injects it and streams every agent live.
-              </p>
+          {incident.status === "idle" ? (
+            <>
+              <div className="mb-3 flex items-end justify-between gap-4">
+                <div>
+                  <h1 className="font-display text-xl font-semibold tracking-tight sm:text-2xl">
+                    Live demo
+                  </h1>
+                  <p className="mt-0.5 text-xs text-fg-muted sm:text-sm">
+                    Pick a failure mode — Sentinel injects it and streams every agent live.
+                  </p>
+                </div>
+              </div>
+              <DemoLauncher
+                onRun={runScenario}
+                disabled={busy && incident.status === "streaming"}
+              />
+            </>
+          ) : (
+            <div className="flex items-center gap-3">
+              <span className="font-mono text-[10px] uppercase tracking-wider text-fg-subtle whitespace-nowrap">
+                Rerun:
+              </span>
+              <DemoLauncher
+                onRun={runScenario}
+                disabled={busy && incident.status === "streaming"}
+                compact
+              />
             </div>
-          </div>
-          <DemoLauncher onRun={runScenario} disabled={busy && incident.status === "streaming"} />
+          )}
         </section>
 
         {/* Incident status bar — appears when something is happening */}
