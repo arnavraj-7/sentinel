@@ -7,7 +7,7 @@
 
 import { useEffect, useRef } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Sparkles } from "lucide-react";
+import { Loader2, Sparkles } from "lucide-react";
 
 import { AGENT_ICONS, AGENT_LABELS, FALLBACK_ICON } from "./icons";
 import type { IncidentState } from "@/lib/types";
@@ -47,10 +47,15 @@ export function TimelineFeed({
   incident,
   filter = defaultFilter,
   emptyState,
+  loading,
 }: {
   incident: IncidentState;
   filter?: (agent: string) => boolean;
   emptyState?: { title: string; subtitle: string };
+  /** When true and no events yet, show a spinner + "connecting" copy
+   *  instead of the default empty-state. Used during the brief window
+   *  between scenario click and first SSE event arrival. */
+  loading?: boolean;
 }) {
   // Aggregate every agent's progress entries (matching the filter),
   // sort chronologically.
@@ -95,15 +100,25 @@ export function TimelineFeed({
   }, [events.length]);
 
   if (events.length === 0) {
-    const title = emptyState?.title ?? "No events yet";
-    const subtitle = emptyState?.subtitle ?? "Pick a scenario above to start streaming";
+    const isConnecting = !!loading;
+    const title = isConnecting
+      ? "Connecting…"
+      : emptyState?.title ?? "No events yet";
+    const subtitle = isConnecting
+      ? "Waiting for the first agent to fire."
+      : emptyState?.subtitle ?? "Pick a scenario above to start streaming";
     return (
       <div className="flex h-full items-center justify-center p-8">
         <div className="text-center">
-          <div className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-bg-subtle">
-            <Sparkles size={16} className="text-fg-subtle" />
+          <div className={`
+            mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-full
+            ${isConnecting ? "bg-running/10" : "bg-bg-subtle"}
+          `}>
+            {isConnecting
+              ? <Loader2 size={16} className="animate-spin text-running" />
+              : <Sparkles size={16} className="text-fg-subtle" />}
           </div>
-          <p className="text-sm text-fg-muted">{title}</p>
+          <p className={`text-sm ${isConnecting ? "text-running" : "text-fg-muted"}`}>{title}</p>
           <p className="mt-1 text-xs text-fg-subtle">{subtitle}</p>
         </div>
       </div>

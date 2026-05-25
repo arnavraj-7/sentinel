@@ -194,6 +194,11 @@ export default function DemoPage() {
                 <TimelineFeed
                   incident={incident}
                   filter={FILTERS.topLevel}
+                  // While the request is in flight + no events have
+                  // arrived yet, show 'Connecting…' instead of the
+                  // 'Pick a scenario' empty-state (which is misleading
+                  // — they just DID pick one).
+                  loading={busy && incident.agentOrder.length === 0}
                 />
               )}
               {activeTab === "graph" && (
