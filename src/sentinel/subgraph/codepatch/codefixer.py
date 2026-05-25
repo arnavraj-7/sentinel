@@ -97,10 +97,25 @@ async def code_fixer_node(state: CodePatchState) -> dict[str, object]:
         await fetch_sync_code(cwd)
         report = await _produce_patch(state, cwd)
     except Exception as e:
-        writer({"agent": "code_fixer", "phase": "error", "message": str(e)})
+        # Surface the FULL exception type + traceback to the server log so
+        # an empty str(e) doesn't hide the real failure. Without this the
+        # PatchReport summary just shows "could not be produced: ." and the
+        # retry loop spins blind.
+        import traceback
+        tb = traceback.format_exc()
+        log.error(
+            "code_fixer_node.exception",
+            incident_id=incident_id,
+            attempt=attempt,
+            exc_type=type(e).__name__,
+            exc_msg=str(e) or "(no message)",
+            traceback=tb,
+        )
+        detail = f"{type(e).__name__}: {str(e) or '(no message)'}"
+        writer({"agent": "code_fixer", "phase": "error", "message": detail})
         report = PatchReport(
             summary=(
-                f"Code fix could not be produced: {e}. "
+                f"Code fix could not be produced ({detail}). "
                 "Escalate if this is a permanent/system issue."
             ),
             files_touched=[],
