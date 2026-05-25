@@ -59,7 +59,15 @@ from sentinel.logging import configure_logging, log  # noqa: E402
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     configure_logging()
-    log.info("sentinel.startup", env=settings.env, checkpoint_db=str(settings.checkpoint_db))
+    # Log the event-loop type at startup — a Selector loop here means
+    # subprocesses will fail on Windows. Should always read 'ProactorEventLoop'
+    # when launched via run_server.py.
+    log.info(
+        "sentinel.startup",
+        env=settings.env,
+        checkpoint_db=str(settings.checkpoint_db),
+        loop_type=type(asyncio.get_running_loop()).__name__,
+    )
     async with open_checkpointer(settings.checkpoint_db) as checkpointer:
         app.state.graph = build_graph(checkpointer)
         log.info("sentinel.ready")

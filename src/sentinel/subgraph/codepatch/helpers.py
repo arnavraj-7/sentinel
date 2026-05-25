@@ -15,6 +15,7 @@ message → opaque loop of 5 failed attempts in 20ms.
 import asyncio
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
 
@@ -89,28 +90,39 @@ async def fetch_sync_code(cwd: str) -> None:
 async def git(cwd: str, *args: str) -> str:
     """Run a git command in `cwd` and return its stripped stdout.
 
-    Raises RuntimeError on a non-zero exit with the stderr text so callers
-    fail loud rather than silently acting on empty output (e.g. treating
-    a failed `rev-parse` as an empty commit SHA).
+    Implemented via `subprocess.run` inside `loop.run_in_executor` rather
+    than `asyncio.create_subprocess_exec` because the latter is unsupported
+    on WindowsSelectorEventLoopPolicy (raises NotImplementedError with no
+    message — the bug that was killing the code-patch sub-graph in a loop
+    of 5 failures in 20ms).
 
-    Usage:
-        sha   = await git(cwd, "rev-parse", "HEAD")
-        files = (await git(cwd, "show", "--name-only", "--format=", "HEAD")).split()
+    Running sync subprocess in a thread executor works on ANY event loop
+    (Selector / Proactor / uvloop / asyncio default). The 5-line cost is
+    worth the resilience — we no longer depend on whichever asyncio
+    policy uvicorn happened to land on.
+
+    Raises RuntimeError on a non-zero exit with the stderr text so callers
+    fail loud rather than silently acting on empty output.
     """
-    proc = await asyncio.create_subprocess_exec(
-        "git", *args,
-        cwd=cwd,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
+    loop = asyncio.get_running_loop()
+    result: subprocess.CompletedProcess[str] = await loop.run_in_executor(
+        None,
+        lambda: subprocess.run(
+            ["git", *args],
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+        ),
     )
-    stdout, stderr = await proc.communicate()
-    if proc.returncode != 0:
-        stderr_text = stderr.decode(errors="replace").strip() or "<no stderr>"
+    if result.returncode != 0:
+        stderr_text = (result.stderr or "").strip() or "<no stderr>"
         raise RuntimeError(
-            f"git {' '.join(args)} failed (exit {proc.returncode}) in {cwd}: "
+            f"git {' '.join(args)} failed (exit {result.returncode}) in {cwd}: "
             f"{stderr_text}"
         )
-    return stdout.decode(errors="replace").strip()
+    return (result.stdout or "").strip()
 
 
 def is_test_file(path: str) -> bool:

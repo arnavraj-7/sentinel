@@ -298,10 +298,24 @@ function applyCustom(
   // flip status to running.
   const skipFromLog = payload.phase === "start";
 
+  // Phase-driven status:
+  //   error → "error"  (sub-graph nodes turn RED in agent list + graph)
+  //   done  → "done"   (sub-graph nodes show their final state)
+  //   any other → "running"
+  // Sub-graph nodes like code_fixer / sandbox_verifier ONLY ever receive
+  // custom writer events (the parent code_patch update doesn't propagate
+  // status to them) — so this is the single place where their status is
+  // set. Bug before: "done" kept the previous status which was "running",
+  // leaving them stuck running-forever in the UI even after they finished.
+  const nextStatus =
+    payload.phase === "error" ? "error" :
+    payload.phase === "done"  ? "done"  :
+                                "running";
+
   const next: AgentState = {
     ...agent,
     name,
-    status: payload.phase === "done" ? agent.status : "running",
+    status: nextStatus,
     currentMessage: payload.message,
     progress: skipFromLog
       ? agent.progress

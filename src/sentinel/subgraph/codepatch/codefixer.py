@@ -81,10 +81,19 @@ async def code_fixer_node(state: CodePatchState) -> dict[str, object]:
     verifier detects it and reports CODE FIX FAILED — the loop can then
     decide retry vs exhaust.
     """
+    import asyncio
     incident_id = state["incident_id"]
     writer = get_stream_writer()
     attempt = len(state.get("patch_reports") or []) + 1
-    log.info("code_fixer_node.run", incident_id=incident_id, attempt=attempt)
+    # Diagnostic: log the running event-loop type so a future
+    # NotImplementedError tells us at a glance whether we're stuck on
+    # Selector (subprocess unsupported) or on Proactor (subprocess works).
+    log.info(
+        "code_fixer_node.run",
+        incident_id=incident_id,
+        attempt=attempt,
+        loop_type=type(asyncio.get_running_loop()).__name__,
+    )
     writer({"agent": "code_fixer", "phase": "start", "attempt": attempt,
             "message": f"Code fixer attempt #{attempt}"})
 
