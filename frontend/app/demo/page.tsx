@@ -19,7 +19,7 @@ import { IncidentHeader } from "@/components/IncidentHeader";
 import { PostMortemPanel } from "@/components/PostMortemPanel";
 import { StickyHITLBanner } from "@/components/StickyHITLBanner";
 import { TabBar, type Tab } from "@/components/TabBar";
-import { TimelineFeed } from "@/components/TimelineFeed";
+import { FILTERS, TimelineFeed } from "@/components/TimelineFeed";
 import { API_BASE } from "@/lib/api";
 import { sseStream } from "@/lib/sse";
 import { INITIAL_INCIDENT, incidentReducer } from "@/lib/state";
@@ -158,7 +158,12 @@ export default function DemoPage() {
           <div className="flex flex-col overflow-hidden rounded-xl border border-line bg-bg-elev shadow-[var(--shadow-card)]">
             <TabBar tabs={tabs} active={activeTab} onChange={id => setActiveTab(id as TabId)} />
             <div className="flex-1 overflow-hidden">
-              {activeTab === "timeline" && <TimelineFeed incident={incident} />}
+              {activeTab === "timeline" && (
+                <TimelineFeed
+                  incident={incident}
+                  filter={FILTERS.topLevel}
+                />
+              )}
               {activeTab === "graph" && (
                 <div className="h-full p-3">
                   <AgentGraph
@@ -169,9 +174,7 @@ export default function DemoPage() {
                 </div>
               )}
               {activeTab === "patch" && (
-                incident.codePatchResult
-                  ? <div className="p-4 overflow-y-auto h-full"><CodePatchPanel result={incident.codePatchResult} /></div>
-                  : <EmptyTab label="Code patch will appear here once the sub-graph runs." />
+                <PatchTabContent incident={incident} />
               )}
               {activeTab === "report" && (
                 incident.postMortem
@@ -192,6 +195,63 @@ function EmptyTab({ label }: { label: string }) {
   return (
     <div className="flex h-full items-center justify-center p-8">
       <p className="text-sm text-fg-muted">{label}</p>
+    </div>
+  );
+}
+
+// Code Patch tab — composed of (1) a live sub-graph progress stream
+// (code_fixer + sandbox_verifier events, the same ones we filtered OUT
+// of the main timeline) at top, and (2) the result panel below when
+// the sub-graph has produced its CodePatchResult. Either can be empty
+// in isolation; we show whichever has content.
+function PatchTabContent({ incident }: { incident: { codePatchResult?: unknown; agents: Record<string, { progress: unknown[] }> } }) {
+  // Detect if the sub-graph has emitted ANY event so we know whether to
+  // show the live progress section or just an empty-state.
+  const hasSubgraphActivity =
+    (incident.agents["code_fixer"]?.progress.length ?? 0) > 0 ||
+    (incident.agents["sandbox_verifier"]?.progress.length ?? 0) > 0;
+
+  if (!hasSubgraphActivity && !incident.codePatchResult) {
+    return (
+      <EmptyTab label="Code patch will appear here once the sub-graph runs." />
+    );
+  }
+
+  return (
+    <div className="flex h-full flex-col">
+      {/* Top half: live sub-graph progress (code_fixer + sandbox_verifier) */}
+      <div className="flex min-h-0 flex-1 flex-col border-b border-line">
+        <div className="border-b border-line bg-bg-subtle/40 px-4 py-2">
+          <span className="font-mono text-[10px] uppercase tracking-wider text-fg-muted">
+            Sub-graph live feed · code_fixer + sandbox_verifier
+          </span>
+        </div>
+        <div className="min-h-0 flex-1 overflow-hidden">
+          <TimelineFeed
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            incident={incident as any}
+            filter={FILTERS.subgraphOnly}
+            emptyState={{
+              title: "Sub-graph not started",
+              subtitle: "Will populate once the executor dispatches to code_patch.",
+            }}
+          />
+        </div>
+      </div>
+
+      {/* Bottom: result panel — only when codePatchResult lands */}
+      {incident.codePatchResult ? (
+        <div className="max-h-[50%] overflow-y-auto p-4">
+          {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+          <CodePatchPanel result={incident.codePatchResult as any} />
+        </div>
+      ) : (
+        <div className="border-t border-line bg-bg-subtle/40 px-4 py-3 text-center">
+          <span className="font-mono text-[10px] uppercase tracking-wider text-fg-subtle">
+            Result panel will appear here when the sub-graph completes
+          </span>
+        </div>
+      )}
     </div>
   );
 }

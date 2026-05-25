@@ -20,10 +20,43 @@ type TimelineEvent = {
   at: number;
 };
 
-export function TimelineFeed({ incident }: { incident: IncidentState }) {
-  // Aggregate every agent's progress entries, sort chronologically.
+// Agents whose events are SUB-GRAPH internals — kept out of the main
+// timeline (would otherwise flood it with 20+ tool-call events per
+// code-patch attempt). They render in the Code Patch tab instead.
+// Plus a couple of LangGraph internal pseudo-nodes (interrupts +
+// terminal markers) that appear due to subgraphs=True.
+export const SUBGRAPH_INTERNAL_AGENTS = new Set([
+  "code_fixer",
+  "sandbox_verifier",
+  "__interrupt__",
+  "_done_verified",
+  "_done_exhausted",
+]);
+
+const defaultFilter = (agent: string) => !SUBGRAPH_INTERNAL_AGENTS.has(agent);
+
+const subgraphOnlyFilter = (agent: string) =>
+  agent === "code_fixer" || agent === "sandbox_verifier";
+
+export const FILTERS = {
+  topLevel:        defaultFilter,
+  subgraphOnly:    subgraphOnlyFilter,
+};
+
+export function TimelineFeed({
+  incident,
+  filter = defaultFilter,
+  emptyState,
+}: {
+  incident: IncidentState;
+  filter?: (agent: string) => boolean;
+  emptyState?: { title: string; subtitle: string };
+}) {
+  // Aggregate every agent's progress entries (matching the filter),
+  // sort chronologically.
   const events: TimelineEvent[] = [];
   for (const name of incident.agentOrder) {
+    if (!filter(name)) continue;
     const agent = incident.agents[name];
     if (!agent) continue;
     for (let i = 0; i < agent.progress.length; i++) {
@@ -62,16 +95,16 @@ export function TimelineFeed({ incident }: { incident: IncidentState }) {
   }, [events.length]);
 
   if (events.length === 0) {
+    const title = emptyState?.title ?? "No events yet";
+    const subtitle = emptyState?.subtitle ?? "Pick a scenario above to start streaming";
     return (
       <div className="flex h-full items-center justify-center p-8">
         <div className="text-center">
           <div className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-bg-subtle">
             <Sparkles size={16} className="text-fg-subtle" />
           </div>
-          <p className="text-sm text-fg-muted">No events yet</p>
-          <p className="mt-1 text-xs text-fg-subtle">
-            Pick a scenario above to start streaming
-          </p>
+          <p className="text-sm text-fg-muted">{title}</p>
+          <p className="mt-1 text-xs text-fg-subtle">{subtitle}</p>
         </div>
       </div>
     );
