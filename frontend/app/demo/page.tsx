@@ -137,7 +137,7 @@ export default function DemoPage() {
               </div>
               <DemoLauncher
                 onRun={runScenario}
-                disabled={busy && incident.status === "streaming"}
+                disabled={busy}
               />
             </>
           ) : (
