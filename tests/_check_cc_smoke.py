@@ -12,6 +12,10 @@ text. Total time ~30-90 seconds for a trivial prompt.
 Expected on failure (Selector loop / subprocess broken):
   NotImplementedError immediately. If you see that, the asyncio policy
   is wrong — use run_server.py instead of `uvicorn` directly.
+
+Note: if CC responds but then raises 'Reached maximum budget' — the SDK
+works; max_budget_usd was just too low to cover even the response. Bump
+the budget. (That outcome STILL proves the asyncio + subprocess fix.)
 """
 import asyncio
 import sys
@@ -34,9 +38,13 @@ async def main() -> None:
     print(f"running loop:      {type(asyncio.get_running_loop()).__name__}")
     print()
 
+    # 0.10 USD was too low — CC hit the budget AFTER answering, so the SDK
+    # raised an exception even though the subprocess + asyncio loop worked.
+    # 1.00 covers a trivial query comfortably and still keeps the smoke
+    # test cheap.
     options = ClaudeAgentOptions(
         system_prompt="You are a terse assistant. Reply with one sentence.",
-        max_budget_usd=0.10,
+        max_budget_usd=1.00,
     )
 
     print("Sending prompt to Claude Code SDK...")
