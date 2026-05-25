@@ -8,13 +8,11 @@ import {
   type EdgeProps,
 } from "@xyflow/react";
 
-// A custom edge that draws a smooth bezier between source and target,
-// and — when `data.active === true` — overlays a glowing dot travelling
-// from source to target along the same path (SVG <animateMotion>).
-//
-// "Done" edges render as solid coloured lines. "Idle" as dashed grey.
-// The visual cue: the moving dot is the "ray of light" — you can see
-// the graph thinking in real time.
+// Custom edge: smooth bezier between source and target. Status-driven
+// colour + dash pattern; NO moving dot (the user found the comet
+// distracting and asked us to remove it across both the landing
+// preview AND the live demo graph). The node fill alone is the cue
+// for "this one is on now".
 
 export type EnergyEdgeData = {
   status: "idle" | "active" | "done" | "error";
@@ -35,69 +33,34 @@ function EnergyEdgeImpl(props: EdgeProps) {
     sourcePosition, targetPosition,
     curvature: 0.4,
   });
-
   void labelX; void labelY;
 
-  const strokeBase =
+  const stroke =
     status === "active" ? "var(--running)" :
     status === "done"   ? "var(--success)" :
     status === "error"  ? "var(--danger)" :
                           "var(--line-strong)";
 
   const dasharray =
-    status === "idle"  ? "4 4" :
-    status === "active" ? "0" :
-                          "0";
+    status === "idle" ? "4 4" : "0";
 
-  const pathId = `epath-${id}`;
+  const strokeWidth =
+    status === "idle"  ? 1.25 :
+    status === "done"  ? 1.75 :
+                         2;
 
   return (
     <>
       <BaseEdge
-        id={pathId}
+        id={`epath-${id}`}
         path={edgePath}
         style={{
-          stroke: strokeBase,
-          strokeWidth: status === "idle" ? 1.25 : 2,
+          stroke,
+          strokeWidth,
           strokeDasharray: dasharray,
-          opacity: status === "idle" ? 0.6 : 1,
+          opacity: status === "idle" ? 0.55 : 1,
         }}
       />
-      {status === "active" && (
-        <>
-          {/* Glow filter — defined inline; cheap enough for a handful of edges. */}
-          <defs>
-            <filter id={`glow-${id}`} x="-50%" y="-50%" width="200%" height="200%">
-              <feGaussianBlur stdDeviation="3" result="blur" />
-              <feMerge>
-                <feMergeNode in="blur" />
-                <feMergeNode in="SourceGraphic" />
-              </feMerge>
-            </filter>
-            <linearGradient id={`grad-${id}`}>
-              <stop offset="0%"  stopColor="var(--info)" />
-              <stop offset="100%" stopColor="var(--accent)" />
-            </linearGradient>
-          </defs>
-          {/* Comet — circle following the edge path */}
-          <circle
-            r="3.5"
-            fill={`url(#grad-${id})`}
-            filter={`url(#glow-${id})`}
-          >
-            <animateMotion dur="1.4s" repeatCount="indefinite" rotate="auto" path={edgePath} />
-          </circle>
-          {/* A faint trailing dot for extra energy */}
-          <circle
-            r="2"
-            fill="var(--running)"
-            opacity="0.5"
-          >
-            <animateMotion dur="1.4s" begin="-0.18s" repeatCount="indefinite" rotate="auto" path={edgePath} />
-          </circle>
-        </>
-      )}
-      {/* invisible label slot — kept so EdgeLabelRenderer is referenced */}
       <EdgeLabelRenderer>
         <span style={{ display: "none" }} />
       </EdgeLabelRenderer>
