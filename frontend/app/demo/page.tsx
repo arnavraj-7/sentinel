@@ -111,12 +111,16 @@ export default function DemoPage() {
   ], [incident.codePatchResult, incident.postMortem]);
 
   return (
-    <div className="flex min-h-dvh flex-col bg-bg text-fg">
+    // h-dvh + overflow-hidden so the PAGE never scrolls — the dashboard
+    // inside owns its own scroll regions. Header / scenario picker /
+    // HITL banner are fixed-height at top; the dashboard fills the
+    // remaining viewport height and its inner panels scroll internally.
+    <div className="flex h-dvh flex-col overflow-hidden bg-bg text-fg">
       <Header />
 
-      <main className="mx-auto flex w-full max-w-[1400px] flex-1 flex-col gap-4 px-6 py-6">
-        {/* Scenario picker — always at the top so re-running is one click */}
-        <section>
+      <main className="mx-auto flex w-full max-w-[1400px] flex-1 min-h-0 flex-col gap-4 px-6 py-6">
+        {/* Scenario picker — fixed-height, doesn't scroll. */}
+        <section className="shrink-0">
           <div className="mb-3 flex items-end justify-between gap-4">
             <div>
               <h1 className="font-display text-xl font-semibold tracking-tight sm:text-2xl">
@@ -131,22 +135,30 @@ export default function DemoPage() {
         </section>
 
         {/* Incident status bar — appears when something is happening */}
-        {incident.status !== "idle" && <IncidentHeader incident={incident} />}
+        {incident.status !== "idle" && (
+          <div className="shrink-0">
+            <IncidentHeader incident={incident} />
+          </div>
+        )}
 
-        {/* Sticky HITL — pinned to the top of the dashboard area */}
+        {/* HITL banner — pinned, fixed-height */}
         <AnimatePresence>
           {incident.status === "paused" && incident.paused && (
-            <StickyHITLBanner
-              paused={incident.paused}
-              onDecision={respondHITL}
-              busy={busy}
-            />
+            <div className="shrink-0">
+              <StickyHITLBanner
+                paused={incident.paused}
+                onDecision={respondHITL}
+                busy={busy}
+              />
+            </div>
           )}
         </AnimatePresence>
 
-        {/* Dashboard — left rail (agents) + tabbed center pane */}
+        {/* Dashboard — fills remaining viewport. min-h-0 is the magic
+            that lets flex children shrink below their content size so
+            the inner overflow-y-auto regions can actually scroll. */}
         <section className="
-          grid min-h-[640px] flex-1 grid-cols-1 gap-4
+          grid min-h-0 flex-1 grid-cols-1 gap-4
           lg:grid-cols-[260px_1fr]
         ">
           <AgentList
