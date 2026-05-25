@@ -73,8 +73,27 @@ export function incidentReducer(
     case "done":
       return applyDone(state, action.payload);
 
-    case "error":
-      return { ...state, status: "error", error: action.payload };
+    case "error": {
+      // Heuristic: mark whichever agent was running at the moment of the
+      // error as 'error' too. Gives the graph + agent list a visible
+      // failure point instead of a sea of 'queued' indicators next to a
+      // top-level error message.
+      const runningName = state.agentOrder.find(
+        n => state.agents[n]?.status === "running"
+      );
+      const nextAgents = runningName
+        ? {
+            ...state.agents,
+            [runningName]: { ...state.agents[runningName], status: "error" as AgentStatus },
+          }
+        : state.agents;
+      return {
+        ...state,
+        status: "error",
+        error: action.payload,
+        agents: nextAgents,
+      };
+    }
   }
 }
 
@@ -118,26 +137,32 @@ function applyNodeDelta(
   nodeName: string,
   delta: Record<string, unknown>,
 ): IncidentState {
-  // The node has completed — its delta is the merge over state.
-  // We capture node-specific artifacts and mark the agent done.
+  // Detect whether this is an investigator's own update (delta carries
+  // investigator_findings with an entry matching nodeName). If so, skip
+  // the outer progress push — the investigator branch below will emit
+  // the richer per-agent entry. Avoids the duplicate row in the trail.
+  const invFindings = delta.investigator_findings as InvestigatorFindings[] | undefined;
+  const matchingInv = invFindings?.find(f => f.agent === nodeName);
 
   const agent = getAgent(state, nodeName);
-  // Push a progress entry so the LiveTrail has something to render even
-  // when the node never emitted `custom` writer events. summarizeDelta
-  // pulls the one most-useful field from the delta for a one-liner.
-  const progressEntry = {
-    phase: "completed",
-    message: summarizeDelta(nodeName, delta),
-    at: Date.now(),
-  };
   const updated: AgentState = {
     ...agent,
     name: nodeName,
     status: "done",
     findings: { ...(agent.findings ?? {}), ...delta },
-    progress: [...agent.progress, progressEntry],
-    currentMessage: progressEntry.message,
   };
+
+  if (!matchingInv) {
+    // Only one progress entry per node update — the message comes from
+    // the most-informative field of the delta via summarizeDelta.
+    const msg = summarizeDelta(nodeName, delta);
+    updated.progress = [...agent.progress, {
+      phase: "completed",
+      message: msg,
+      at: Date.now(),
+    }];
+    updated.currentMessage = msg;
+  }
 
   // Extract `thinking_process` if present on common finding shapes
   const thinking = pickThinking(delta);
@@ -149,12 +174,12 @@ function applyNodeDelta(
   if (nodeName === "triager" && delta.triager_findings) {
     next = { ...next, triagerFindings: delta.triager_findings as TriagerFindings };
   }
-  if (delta.investigator_findings) {
-    const findings = delta.investigator_findings as InvestigatorFindings[];
+  if (invFindings) {
     // Each investigator node's delta carries the finding for its own agent
     // (via the add reducer). Attach back to the matching agent row + push
-    // a trail entry under the investigator's own name.
-    for (const f of findings) {
+    // a trail entry under the investigator's own name (single push — the
+    // outer applyNodeDelta deduped against this branch via matchingInv).
+    for (const f of invFindings) {
       const inv = getAgent(next, f.agent);
       const invEntry = {
         phase: "completed",

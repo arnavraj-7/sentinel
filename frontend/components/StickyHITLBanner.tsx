@@ -5,7 +5,7 @@
 // that the user had to scroll deep to find. Collapsible details so the
 // banner stays a small bar by default.
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   Brain,
@@ -40,7 +40,11 @@ export function StickyHITLBanner({
   onDecision: (approved: boolean) => void;
   busy?: boolean;
 }) {
-  const [expanded, setExpanded] = useState(false);
+  // Expanded by default — the user shouldn't have to click 'Details' to
+  // see what they're being asked to approve. Re-expand on every new gate
+  // (paused.stage transitions root_cause → plan etc.).
+  const [expanded, setExpanded] = useState(true);
+  useEffect(() => { setExpanded(true); }, [paused.stage]);
   const isRCA = paused.stage === "root_cause";
   const Icon = isRCA ? Brain : ListChecks;
   const stepCount = paused.all_steps?.length ?? 0;
