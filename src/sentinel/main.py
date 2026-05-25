@@ -18,6 +18,14 @@ warnings.filterwarnings(
     "ignore",
     message=".*allowed_msgpack_modules.*",
 )
+# Catch-all for the langchain deprecation noise that fires per Pydantic
+# model on every checkpoint read. The message-regex filters above sometimes
+# miss because the warning class is a langchain-specific subclass.
+try:
+    from langchain_core._api.deprecation import LangChainPendingDeprecationWarning  # type: ignore
+    warnings.filterwarnings("ignore", category=LangChainPendingDeprecationWarning)
+except Exception:
+    pass
 
 # ── Windows asyncio policy fix (must run BEFORE uvicorn imports asyncio) ────
 # uvicorn on Windows defaults to WindowsSelectorEventLoopPolicy, which does

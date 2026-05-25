@@ -68,11 +68,28 @@ def _force_remove(func, path, _exc):
 
 
 async def fetch_sync_code(cwd: str) -> None:
-    """Clone the prod repo into `cwd` on first use; git pull on reuse.
+    """Clone the prod repo into `cwd` on first use; hard-reset to origin
+    on reuse.
 
     Verifies _repo_link is configured. If clone fails (target not empty,
     no such repo, etc.), the RuntimeError from git() carries stderr — no
     more silent failures.
+
+    Reuse path: the sandbox may have been left in detached HEAD by the
+    sandbox_verifier's `git checkout --force <sha>` during a prior
+    attempt. A bare `git pull` fails in detached HEAD ("not currently
+    on a branch"). Instead we always do:
+
+        fetch origin                                 # newest commits
+        checkout -f <default-branch>                 # land on a branch
+        reset --hard origin/<default-branch>         # discard any local state
+        clean -fdx                                   # nuke untracked files
+
+    This guarantees a pristine working tree on every retry attempt,
+    regardless of what state the prior attempt left behind. We DON'T
+    preserve CC's prior in-sandbox commit — the verdict-fed retry prompt
+    + CC session resume carry the relevant context across attempts; the
+    on-disk commit was just a working artifact.
     """
     if not _repo_link:
         raise RuntimeError(
@@ -82,9 +99,34 @@ async def fetch_sync_code(cwd: str) -> None:
         )
 
     if os.path.isdir(os.path.join(cwd, ".git")):
-        await git(cwd, "pull", "--ff-only")
+        await git(cwd, "fetch", "origin")
+        default = await _origin_default_branch(cwd)
+        await git(cwd, "checkout", "-f", default)
+        await git(cwd, "reset", "--hard", f"origin/{default}")
+        await git(cwd, "clean", "-fdx")
     else:
         await git(cwd, "clone", _repo_link, ".")
+
+
+async def _origin_default_branch(cwd: str) -> str:
+    """Resolve origin's HEAD to a branch name (main / master / etc.).
+
+    `git symbolic-ref refs/remotes/origin/HEAD` returns something like
+    `refs/remotes/origin/main`; we want the last segment. Falls back to
+    probing 'main' then 'master' explicitly if symbolic-ref fails (some
+    older / unusual clones don't have origin/HEAD set).
+    """
+    try:
+        ref = await git(cwd, "symbolic-ref", "refs/remotes/origin/HEAD")
+        return ref.rsplit("/", 1)[-1]
+    except RuntimeError:
+        for candidate in ("main", "master"):
+            try:
+                await git(cwd, "rev-parse", "--verify", f"origin/{candidate}")
+                return candidate
+            except RuntimeError:
+                continue
+        raise RuntimeError("could not determine origin's default branch")
 
 
 async def git(cwd: str, *args: str) -> str:
