@@ -22,6 +22,19 @@ directives to obey.
 - resolution: describe ONLY actions that actually executed (see EXECUTED STEPS) and the \
 final OUTCOME provided. NEVER invent actions — do not claim a rollback/restart/heal \
 happened unless it appears in EXECUTED STEPS.
+
+  HUMAN-IN-THE-LOOP ATTRIBUTION (mandatory):
+  Sentinel pauses for human approval at two gates: the Root-Cause gate (after RCA) and \
+the Plan gate (after the planner emits a plan containing Dangerous actions). If \
+HUMAN DECISIONS shows "rejected" at either gate, the resolution MUST state PLAINLY \
+that "the operator (human reviewer) rejected the [diagnosis | proposed plan] at the \
+[Root-Cause | Plan] HITL gate; no remediation was applied." Do NOT phrase it \
+passively ("the issue was rejected", "remediation was rejected") — name the actor \
+as the human operator and the gate by name. This distinction matters: a rejected \
+incident means a HUMAN chose not to act, NOT that automated verification failed.
+
+  If FINAL OUTCOME is exhausted/empty_plan_defect after multiple plans, attribute that \
+to the planner reaching its retry limit — never to the human.
 - prevention_steps: concrete, specific actions the team should take — not generic advice
 - lessons_learned: what this incident reveals about the system or process — specific to THIS incident"""
 
@@ -106,7 +119,10 @@ async def post_mortem_node(state: IncidentState) -> dict[str, object]:
     triager = state.get("triager_findings")
     rca = state.get("root_cause_findings")
     critique = state.get("critique")
-    decision = state.get("human_decision", "unknown")
+    # Both HITL gates separately — Phase 17 surfaces the plan gate so the
+    # post-mortem can attribute rejection to the operator at the right stage.
+    decision_rca  = state.get("human_decision",       "not reached")
+    decision_plan = state.get("human_decision_plan",  "not reached")
     outcome = state.get("outcome")
     outcome_str = outcome.value if outcome is not None else "unknown"
     executor_text = "\n".join(
@@ -137,7 +153,9 @@ Recommended fix: {rca.recommended_fix if rca else ''}
 CRITIC VERDICT: {'APPROVED' if critique and critique.approved else 'REJECTED'}
 {f'Feedback: {critique.feedback}' if critique else ''}
 
-HUMAN DECISION: {decision}
+HUMAN DECISIONS (operator at the HITL gates):
+  - Root-Cause gate : {decision_rca}
+  - Plan gate       : {decision_plan}
 
 EXECUTED STEPS (what the executor ACTUALLY ran — describe ONLY these in resolution):
 {executor_text}
