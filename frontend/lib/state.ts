@@ -122,11 +122,21 @@ function applyNodeDelta(
   // We capture node-specific artifacts and mark the agent done.
 
   const agent = getAgent(state, nodeName);
+  // Push a progress entry so the LiveTrail has something to render even
+  // when the node never emitted `custom` writer events. summarizeDelta
+  // pulls the one most-useful field from the delta for a one-liner.
+  const progressEntry = {
+    phase: "completed",
+    message: summarizeDelta(nodeName, delta),
+    at: Date.now(),
+  };
   const updated: AgentState = {
     ...agent,
     name: nodeName,
     status: "done",
     findings: { ...(agent.findings ?? {}), ...delta },
+    progress: [...agent.progress, progressEntry],
+    currentMessage: progressEntry.message,
   };
 
   // Extract `thinking_process` if present on common finding shapes
@@ -142,14 +152,22 @@ function applyNodeDelta(
   if (delta.investigator_findings) {
     const findings = delta.investigator_findings as InvestigatorFindings[];
     // Each investigator node's delta carries the finding for its own agent
-    // (via the add reducer). Attach back to the matching agent row.
+    // (via the add reducer). Attach back to the matching agent row + push
+    // a trail entry under the investigator's own name.
     for (const f of findings) {
       const inv = getAgent(next, f.agent);
+      const invEntry = {
+        phase: "completed",
+        message: f.summary || `conf ${(f.confidence * 100).toFixed(0)}%`,
+        at: Date.now(),
+      };
       next = withAgent(next, f.agent, {
         ...inv,
         status: "done",
         thinkingProcess: f.thinking_process,
         findings: { ...(inv.findings ?? {}), ...(f as unknown as Record<string, unknown>) },
+        progress: [...inv.progress, invEntry],
+        currentMessage: invEntry.message,
       });
     }
   }
@@ -183,6 +201,50 @@ function applyNodeDelta(
   }
 
   return next;
+}
+
+// One-liner summary per node — picks the most informative field from the
+// node's state-delta shape. Used to populate the LiveTrail entry when a
+// node completes (so the trail isn't empty for nodes that didn't emit
+// custom writer events).
+function summarizeDelta(nodeName: string, delta: Record<string, unknown>): string {
+  const tf = delta.triager_findings as { failure_category?: string; summary?: string } | undefined;
+  if (tf?.summary) return `${tf.failure_category ?? ""}: ${tf.summary}`.trim().replace(/^:\s*/, "");
+
+  const inv = (delta.investigator_findings as InvestigatorFindings[] | undefined)?.[0];
+  if (inv?.summary) return inv.summary;
+
+  const rca = delta.root_cause_findings as { root_cause?: string; confidence?: number } | undefined;
+  if (rca?.root_cause) return `${rca.root_cause} (${((rca.confidence ?? 0) * 100).toFixed(0)}% conf)`;
+
+  const crit = delta.critique as { approved?: boolean; feedback?: string } | undefined;
+  if (crit && typeof crit.approved === "boolean") {
+    return crit.approved ? "Approved" : `Rejected: ${crit.feedback ?? "needs revision"}`;
+  }
+
+  const plan = delta.remediation_plan as { remediation_steps?: Array<{ remediation_action: string }> } | undefined;
+  if (plan?.remediation_steps?.length) {
+    const actions = plan.remediation_steps.map(s => s.remediation_action).join(", ");
+    return `Plan: ${actions}`;
+  }
+
+  const verif = delta.verification as { verified?: boolean; verdict?: string } | undefined;
+  if (verif?.verdict) return verif.verdict;
+
+  const cp = delta.code_patch_result as { outcome?: string; attempts?: number } | undefined;
+  if (cp?.outcome) return `${cp.outcome} (${cp.attempts ?? 0} attempts)`;
+
+  const er = delta.executor_result as Array<{ ok?: boolean; detail?: string; step?: { remediation_action?: string } }> | undefined;
+  if (er?.length) {
+    const last = er[er.length - 1];
+    const action = last?.step?.remediation_action ?? "step";
+    return `${action}: ${last?.detail ?? (last?.ok ? "ok" : "failed")}`;
+  }
+
+  if (typeof delta.outcome === "string") return `Outcome: ${delta.outcome}`;
+  if (typeof delta.post_mortem === "string") return "Post-mortem written";
+
+  return `${nodeName} completed`;
 }
 
 function pickThinking(delta: Record<string, unknown>): string | undefined {

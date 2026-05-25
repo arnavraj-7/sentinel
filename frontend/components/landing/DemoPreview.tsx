@@ -6,12 +6,13 @@
 // NEVER jumps when new events arrive (the previous implementation had
 // the trail height growing with content, pushing everything around).
 //
-// Visual rules:
-//   - Idle nodes: outlined, faded
-//   - Running nodes: SOLID blue fill, white icon + label
-//   - Done nodes: SOLID green fill, white icon + label
-//   - Edges: solid colored line when active/done (no traveling dot — that
-//     was distracting; the node-fill alone reads as "this one is on now")
+// Visual rules (matches the AgentGraph on /demo so the preview looks
+// identical to the real thing — subtle, not garish):
+//   - Idle nodes: bg-elev fill, faint line outline
+//   - Running nodes: slight blue tint fill, blue outline at 60% opacity
+//   - Done nodes: slight green tint fill, green outline at 40% opacity
+//   - Text stays dark/fg in all states (readable on the tint, not on solid)
+//   - Edges: colored line when active/done, dashed grey when idle. No dot.
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
@@ -230,21 +231,23 @@ function NodeBadge({
   const rx = node.x - w / 2;
   const ry = node.y - h / 2;
 
-  // SOLID FILL when running/done. White text + icon. The fill IS the cue —
-  // no more travelling dot needed.
+  // Subtle tint + coloured outline (matches the /demo AgentGraph style).
+  // Text + icon stay readable against the soft tint.
   const fill =
-    status === "running" ? "var(--running)" :
-    status === "done"    ? "var(--success)" :
+    status === "running" ? "color-mix(in srgb, var(--running) 10%, var(--bg-elev))" :
+    status === "done"    ? "color-mix(in srgb, var(--success) 10%, var(--bg-elev))" :
                            "var(--bg-elev)";
   const stroke =
-    status === "idle"    ? "var(--line)" :
-                           "transparent";
-  const textColor =
-    status === "idle"    ? "var(--fg)" :
-                           "#ffffff";
+    status === "running" ? "color-mix(in srgb, var(--running) 60%, transparent)" :
+    status === "done"    ? "color-mix(in srgb, var(--success) 45%, transparent)" :
+                           "var(--line)";
+  const strokeWidth =
+    status === "idle"    ? 1.25 : 1.75;
+  const textColor = "var(--fg)";
   const iconColor =
-    status === "idle"    ? "var(--fg-subtle)" :
-                           "#ffffff";
+    status === "running" ? "var(--running)" :
+    status === "done"    ? "var(--success)" :
+                           "var(--fg-subtle)";
 
   return (
     <motion.g
@@ -254,7 +257,7 @@ function NodeBadge({
     >
       <rect
         x={rx} y={ry} width={w} height={h} rx={8}
-        fill={fill} stroke={stroke} strokeWidth={1.5}
+        fill={fill} stroke={stroke} strokeWidth={strokeWidth}
       />
       <foreignObject x={rx + 12} y={ry + 8} width={20} height={20}>
         <div style={{
