@@ -46,12 +46,19 @@ export function incidentReducer(
       return { ...INITIAL_INCIDENT };
 
     case "init":
+      // Merge — DON'T reset. `init` fires at the start of EVERY SSE leg,
+      // including resume-after-HITL. The first scenario fire was already
+      // preceded by a `reset` (page.tsx#runScenario), which is the only
+      // place we want to wipe history. Resume must preserve the agent
+      // history accumulated before the pause.
       return {
-        ...INITIAL_INCIDENT,
+        ...state,
         status: "streaming",
-        id: action.payload.incident_id,
-        scenarioName: action.payload.scenario,
-        scenarioTitle: action.payload.title,
+        id: action.payload.incident_id ?? state.id,
+        scenarioName: action.payload.scenario ?? state.scenarioName,
+        scenarioTitle: action.payload.title ?? state.scenarioTitle,
+        // Pause is now over (we're streaming again post-approve).
+        paused: undefined,
       };
 
     case "update":

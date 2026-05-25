@@ -1,6 +1,7 @@
 "use client";
 
 import { Shield } from "lucide-react";
+import { ConnectionStatus } from "./ConnectionStatus";
 import { ThemeToggle } from "./ThemeToggle";
 
 export function Header() {
@@ -21,10 +22,13 @@ export function Header() {
             <span className="font-display text-base font-semibold tracking-tight">
               Sentinel
             </span>
-            <span className="text-xs text-fg-muted">AI SRE Copilot</span>
+            <span className="hidden text-xs text-fg-muted sm:inline">
+              AI SRE Copilot
+            </span>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2.5">
+          <ConnectionStatus />
           <ThemeToggle />
         </div>
       </div>

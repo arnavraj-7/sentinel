@@ -107,6 +107,43 @@ body {
   animation: pulse-ring 1.6s ease-out infinite;
 }
 
+/* Graph node status colours — applied on the custom AgentNode */
+.graph-node {
+  border-color: var(--line);
+}
+.graph-node.node-idle {
+  border-color: var(--line);
+  opacity: 0.78;
+}
+.graph-node.node-idle:hover { opacity: 1; }
+.graph-node.node-running {
+  border-color: color-mix(in srgb, var(--running) 60%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--running) 30%, transparent),
+              0 8px 24px -6px color-mix(in srgb, var(--running) 35%, transparent);
+}
+.graph-node.node-done {
+  border-color: color-mix(in srgb, var(--success) 40%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--success) 18%, transparent);
+}
+.graph-node.node-error {
+  border-color: color-mix(in srgb, var(--danger) 50%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--danger) 25%, transparent);
+}
+
+/* React-Flow theme overrides — match Sentinel colours in dark + light */
+.react-flow__node { font-family: var(--font-sans); }
+.react-flow__handle { pointer-events: none; }
+.react-flow__controls button {
+  background: var(--bg-elev);
+  border: 1px solid var(--line);
+  color: var(--fg-muted);
+}
+.react-flow__controls button:hover {
+  background: var(--bg-subtle);
+  color: var(--fg);
+}
+.react-flow__attribution { display: none; }
+
 /* Cursor blink for live progress text */
 @keyframes blink {
   0%, 100% { opacity: 1; }
