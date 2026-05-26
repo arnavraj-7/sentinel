@@ -15,7 +15,7 @@ const NAV = [
   { href: "/",             label: "Overview" },
   { href: "/#how",         label: "How it works" },
   { href: "/#features",    label: "Features" },
-  { href: "/#setup",       label: "Run locally" },
+  { href: "/#setup",       label: "Setup" },
   { href: "/demo",         label: "Live Demo" },
 ];
 
