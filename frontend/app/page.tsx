@@ -4,6 +4,7 @@ import { FeatureGrid } from "@/components/landing/FeatureGrid";
 import { Header } from "@/components/Header";
 import { HowItWorks } from "@/components/landing/HowItWorks";
 import { LandingHero } from "@/components/landing/LandingHero";
+import { SetupGuide } from "@/components/landing/SetupGuide";
 import { StatsStrip } from "@/components/landing/StatsStrip";
 
 export default function LandingPage() {
@@ -26,6 +27,7 @@ export default function LandingPage() {
         <section id="features" className="scroll-mt-20">
           <FeatureGrid />
         </section>
+        <SetupGuide />
         <CTASection />
       </main>
     </div>
