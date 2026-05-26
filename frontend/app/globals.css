@@ -97,6 +97,42 @@ body {
   background-position: -1px -1px;
 }
 
+/* Page-wide ambience — soft radial accents fade from the top.
+   Lives on a pointer-events-none layer behind all content. */
+.page-ambience::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    radial-gradient(ellipse 60% 40% at 50% 0%,
+                    color-mix(in srgb, var(--accent) 8%, transparent),
+                    transparent 60%),
+    radial-gradient(ellipse 50% 30% at 100% 8%,
+                    color-mix(in srgb, var(--info) 6%, transparent),
+                    transparent 50%),
+    linear-gradient(to right,
+                    color-mix(in srgb, var(--line) 35%, transparent) 1px,
+                    transparent 1px),
+    linear-gradient(to bottom,
+                    color-mix(in srgb, var(--line) 35%, transparent) 1px,
+                    transparent 1px);
+  background-size: 100% 100%, 100% 100%, 48px 48px, 48px 48px;
+  mask-image: linear-gradient(to bottom, black 0%, black 60%, transparent 100%);
+  z-index: 0;
+}
+.page-ambience > * { position: relative; z-index: 1; }
+
+/* Card hover lift — used by feature/category cards */
+.lift {
+  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+}
+.lift:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-elev);
+  border-color: var(--line-strong);
+}
+
 /* Pulsing running indicator */
 @keyframes pulse-ring {
   0%   { box-shadow: 0 0 0 0 color-mix(in srgb, var(--running) 50%, transparent); }

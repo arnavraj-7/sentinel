@@ -5,6 +5,7 @@ import { motion } from "framer-motion";
 import { Check, Copy, ExternalLink } from "lucide-react";
 
 import { GITHUB_URL } from "@/lib/config";
+import { SectionHeader } from "./SectionHeader";
 
 type OS = "windows" | "unix";
 
@@ -124,17 +125,14 @@ export function SetupGuide() {
 
   return (
     <section id="setup" className="space-y-6 scroll-mt-20">
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <h2 className="font-display text-3xl font-bold tracking-tight">
-            Run it locally
-          </h2>
-          <p className="mt-2 max-w-2xl text-sm text-fg-muted sm:text-base">
-            About five minutes from a fresh clone to running the live demo —
-            real Gemini, real Claude Code, real differential test gate.
-          </p>
-        </div>
-        <div className="inline-flex items-center gap-0.5 rounded-md border border-line bg-bg-elev p-0.5">
+      <div className="flex flex-wrap items-end justify-between gap-6">
+        <SectionHeader
+          index="04"
+          eyebrow="Setup"
+          title="Run it locally"
+          description="About five minutes from a fresh clone to a running demo — real Gemini, real Claude Code, real differential test gate."
+        />
+        <div className="inline-flex items-center gap-0.5 rounded-md border border-line bg-bg-elev p-0.5 shrink-0">
           <OSButton current={os} target="windows" onClick={() => setOs("windows")} label="Windows" />
           <OSButton current={os} target="unix"    onClick={() => setOs("unix")}    label="macOS / Linux" />
         </div>

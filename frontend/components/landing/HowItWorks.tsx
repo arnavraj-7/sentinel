@@ -1,7 +1,9 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { Brain, ListChecks, Wrench } from "lucide-react";
+import { ArrowRight, Brain, ListChecks, Wrench } from "lucide-react";
+
+import { SectionHeader } from "./SectionHeader";
 
 const STEPS = [
   {
@@ -35,24 +37,21 @@ const STEPS = [
       "dispatch to a self-contained sub-graph where Claude Code writes a " +
       "fix, then a deterministic differential test gate (pass-on-fix AND " +
       "fail-on-parent) verifies it's a real regression test, not a fake.",
-    chips: ["executor", "code_patch sub-graph", "sandbox_verifier", "prod verifier", "post_mortem"],
+    chips: ["executor", "code_patch sub-graph", "sandbox_verifier", "promote", "post_mortem"],
   },
 ];
 
 export function HowItWorks() {
   return (
-    <section className="space-y-6">
-      <div>
-        <h2 className="font-display text-3xl font-bold tracking-tight">
-          How it works
-        </h2>
-        <p className="mt-2 max-w-2xl text-sm text-fg-muted sm:text-base">
-          Three phases, sixteen nodes. Every step is a discrete graph node
-          with its own thinking, findings, and visible streaming progress.
-        </p>
-      </div>
+    <section className="space-y-8">
+      <SectionHeader
+        index="02"
+        eyebrow="How it works"
+        title="Three phases, sixteen nodes"
+        description="Every step is a discrete graph node with its own thinking, findings, and visible streaming progress."
+      />
 
-      <ol className="grid grid-cols-1 gap-5 lg:grid-cols-3">
+      <ol className="grid grid-cols-1 gap-5 lg:grid-cols-3 lg:items-stretch">
         {STEPS.map((step, i) => (
           <motion.li
             key={step.n}
@@ -61,29 +60,56 @@ export function HowItWorks() {
             viewport={{ once: true }}
             transition={{ duration: 0.35, delay: i * 0.08 }}
             className="
-              relative flex flex-col gap-4 rounded-xl border border-line
-              bg-bg-elev p-6 shadow-[var(--shadow-card)]
+              lift relative flex flex-col gap-4 overflow-hidden
+              rounded-xl border border-line bg-bg-elev p-6
+              shadow-[var(--shadow-card)]
             "
           >
-            <div className="flex items-center justify-between">
+            {/* Decorative giant numeral — adds editorial polish */}
+            <span
+              aria-hidden
+              className="
+                pointer-events-none absolute right-4 top-0 select-none
+                font-display text-[120px] font-bold leading-none text-fg
+                opacity-[0.04]
+              "
+            >
+              {step.n}
+            </span>
+
+            {/* Connector arrow between cards on lg screens */}
+            {i < STEPS.length - 1 && (
+              <span
+                aria-hidden
+                className="
+                  pointer-events-none absolute -right-4 top-1/2
+                  hidden -translate-y-1/2 text-line-strong
+                  lg:flex
+                "
+              >
+                <ArrowRight size={20} strokeWidth={1.5} />
+              </span>
+            )}
+
+            <div className="relative flex items-center justify-between">
               <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-accent/10 text-accent">
                 <step.Icon size={18} strokeWidth={2} />
               </div>
-              <span className="font-mono text-xs text-fg-subtle">
-                step {step.n} of 3
+              <span className="font-mono text-[10px] uppercase tracking-[0.15em] text-fg-subtle">
+                Phase {step.n} / 3
               </span>
             </div>
 
-            <div>
-              <h3 className="font-display text-xl font-semibold tracking-tight">
+            <div className="relative">
+              <h3 className="font-display text-2xl font-semibold tracking-tight">
                 {step.title}
               </h3>
-              <p className="mt-2 text-sm leading-relaxed text-fg-muted">
+              <p className="mt-2 text-[13.5px] leading-relaxed text-fg-muted">
                 {step.body}
               </p>
             </div>
 
-            <div className="mt-auto flex flex-wrap gap-1.5">
+            <div className="relative mt-auto flex flex-wrap gap-1.5">
               {step.chips.map(c => (
                 <span
                   key={c}

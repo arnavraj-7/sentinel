@@ -1,6 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
+import { SectionHeader } from "./SectionHeader";
 import {
   Activity,
   Brain,
@@ -121,15 +122,12 @@ const CATEGORIES: Category[] = [
 export function FeatureGrid() {
   return (
     <section className="space-y-8">
-      <div>
-        <h2 className="font-display text-3xl font-bold tracking-tight">
-          What&apos;s inside
-        </h2>
-        <p className="mt-2 max-w-2xl text-sm text-fg-muted sm:text-base">
-          Every capability — grouped so you can scan. Click the live demo to
-          see most of these fire in 90 seconds.
-        </p>
-      </div>
+      <SectionHeader
+        index="03"
+        eyebrow="Capabilities"
+        title="What's inside"
+        description="Every notable feature, grouped so you can scan. Click the live demo to see most of these fire in 90 seconds."
+      />
 
       <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3">
         {CATEGORIES.map((cat, i) => (
@@ -140,7 +138,7 @@ export function FeatureGrid() {
             viewport={{ once: true, amount: 0.2 }}
             transition={{ duration: 0.35, delay: (i % 3) * 0.05 }}
             className="
-              flex flex-col gap-4 rounded-xl border border-line
+              lift flex flex-col gap-4 rounded-xl border border-line
               bg-bg-elev p-6 shadow-[var(--shadow-card)]
             "
           >
