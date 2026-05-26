@@ -7,7 +7,7 @@ import { usePathname } from "next/navigation";
 import { ConnectionStatus } from "./ConnectionStatus";
 import { GithubIcon } from "./GithubIcon";
 import { ThemeToggle } from "./ThemeToggle";
-import { GITHUB_URL, PROJECT_NAME, PROJECT_TAGLINE } from "@/lib/config";
+import { GITHUB_URL, PROJECT_NAME } from "@/lib/config";
 
 // Nav items — anchor links on landing scroll to sections; the demo link
 // always goes to /demo. On /demo, the anchor links resolve via root /#.
@@ -37,12 +37,9 @@ export function Header() {
           >
             <Shield size={15} strokeWidth={2.5} />
           </div>
-          <div className="hidden items-baseline gap-2 sm:flex">
-            <span className="font-display text-base font-semibold tracking-tight">
-              {PROJECT_NAME}
-            </span>
-            <span className="text-xs text-fg-muted">{PROJECT_TAGLINE}</span>
-          </div>
+          <span className="hidden font-display text-base font-semibold tracking-tight sm:inline">
+            {PROJECT_NAME}
+          </span>
         </Link>
 
         {/* Nav */}
