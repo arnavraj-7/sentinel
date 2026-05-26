@@ -25,6 +25,10 @@ const ORDER: Array<{ name: string; nested?: boolean }> = [
   { name: "code_patch" },
   { name: "code_fixer",       nested: true },
   { name: "sandbox_verifier", nested: true },
+  // Phase 16c — promote gate + promote step. Sit after code_patch
+  // because they only run when the sub-graph returns 'verified'.
+  { name: "human_approval_promote" },
+  { name: "promote" },
   { name: "verifier" },
   { name: "post_mortem" },
 ];

@@ -14,6 +14,7 @@ import {
   ListChecks,
   Network,
   PlayCircle,
+  Rocket,
   Scale,
   ScrollText,
   Search,
@@ -39,6 +40,8 @@ export const AGENT_ICONS: Record<string, LucideIcon> = {
   code_patch: GitBranch,         // parent wrapper
   code_fixer: Wrench,            // sub-graph: produce patch
   sandbox_verifier: ShieldCheck, // sub-graph: differential test gate
+  human_approval_promote: UserCheck, // Phase 16c — promote HITL gate
+  promote: Rocket,               // Phase 16c — push to prod + redeploy
   verifier: Activity,            // prod verifier
   finalize: CheckCircle2,
   post_mortem: BookText,
@@ -60,6 +63,8 @@ export const AGENT_LABELS: Record<string, string> = {
   code_patch: "Code Patch",
   code_fixer: "Code Fixer",
   sandbox_verifier: "Sandbox Verifier",
+  human_approval_promote: "HITL · Promote",
+  promote: "Promote",
   verifier: "Prod Verifier",
   finalize: "Finalize",
   post_mortem: "Scribe (Post-Mortem)",
@@ -81,6 +86,8 @@ export const AGENT_TAGLINES: Record<string, string> = {
   code_patch: "Dispatch to the code-patch sub-graph",
   code_fixer: "Claude Code: locate, fix, test, commit",
   sandbox_verifier: "Differential test gate — pass-on-fix ∧ fail-on-parent",
+  human_approval_promote: "Operator approves pushing the verified patch to prod",
+  promote: "Push sandbox commit to prod + trigger service redeploy",
   verifier: "Verifies prod recovered from remediation",
   finalize: "Resolves the incident with an outcome",
   post_mortem: "Writes the incident report",

@@ -13,10 +13,12 @@ from sentinel.agents.finalize import finalize_node
 from sentinel.agents.scribe import post_mortem_node
 from sentinel.agents.executor import (
     after_human_plan_routing,
+    after_human_promote_routing,
     after_human_rca_routing,
     after_step_routing,
     executor_node,
     human_approval_plan_node,
+    human_approval_promote_node,
     human_approval_rca_node,
 )
 from sentinel.agents.investigators import (
@@ -33,6 +35,7 @@ from sentinel.agents.verifier import after_verify_routing, verifier_node
 # __init__.py. The __init__.py is intentionally empty to avoid a circular
 # import (see subgraph/codepatch/__init__.py for the full explanation).
 from sentinel.subgraph.codepatch.graph import code_patch_node
+from sentinel.subgraph.codepatch.promoter import promote_node
 
 IncidentGraph = CompiledStateGraph[IncidentState, Any, IncidentState, IncidentState]
 
@@ -59,6 +62,11 @@ def build_graph(checkpointer: AsyncSqliteSaver) -> IncidentGraph:
     # output back into a parent delta (code_patch_result + StepResult +
     # next_step_index bump). The parent never sees the sub-graph's internals.
     builder.add_node("code_patch", code_patch_node)
+    # Phase 16c — promote gate + promote step. Gates on operator approval
+    # AFTER the sub-graph's differential gate verifies a patch; pushes
+    # the sandbox commit to prod + triggers a service redeploy.
+    builder.add_node("human_approval_promote", human_approval_promote_node)
+    builder.add_node("promote", promote_node)
     builder.add_node("finalize", finalize_node)
     builder.add_node("post_mortem", post_mortem_node)
 
@@ -93,6 +101,12 @@ def build_graph(checkpointer: AsyncSqliteSaver) -> IncidentGraph:
     builder.add_conditional_edges("human_approval_plan", after_human_plan_routing)
     builder.add_conditional_edges("executor", after_step_routing)
     builder.add_conditional_edges("code_patch", after_step_routing)
+    # Phase 16c — promote gate wiring
+    builder.add_conditional_edges("human_approval_promote", after_human_promote_routing)
+    # promote_node hands back to the shared step-router; it will see
+    # promote_completed=True and continue with whatever's next in the plan
+    # (verify_health → verify_metrics → prod verifier).
+    builder.add_conditional_edges("promote", after_step_routing)
 
     builder.add_conditional_edges("verifier", after_verify_routing)
     builder.add_edge("finalize", "post_mortem")

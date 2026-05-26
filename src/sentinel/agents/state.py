@@ -92,7 +92,12 @@ class RemediationAction(StrEnum):
     VERIFY_HEALTH = "verify_health"
     VERIFY_METRICS = "verify_metrics"
     ESCALATE = "escalate"
-    APPLY_CODE_PATCH = "apply_code_patch"  
+    APPLY_CODE_PATCH = "apply_code_patch"
+    # Phase 16c — synthetic action injected after a code_patch returns
+    # `verified`. Pushes the sandbox commit to the prod repo and triggers
+    # a service redeploy. NOT planner-emitted — added via the graph's
+    # after-code-patch routing.
+    PROMOTE = "promote"
 
 
 # Phase 13a — Safe/Dangerous dual-track classification.
@@ -107,7 +112,8 @@ DANGEROUS_ACTIONS: frozenset[RemediationAction] = frozenset({
     RemediationAction.ROLLBACK,         # redeploy prior revision     → mutation
     RemediationAction.SCALE_UP,         # changes instance count      → mutation
     RemediationAction.INCREASE_DB_POOL, # changes runtime config      → mutation
-    RemediationAction.APPLY_CODE_PATCH  # changes code                → mutation
+    RemediationAction.APPLY_CODE_PATCH, # changes code                → mutation
+    RemediationAction.PROMOTE,          # pushes to prod              → mutation
 })
 # Safe (NOT in the set): VERIFY_HEALTH, VERIFY_METRICS (read-only probes),
 # ESCALATE (signals a human — no production mutation).
@@ -149,7 +155,8 @@ class PostMortemReport(BaseModel):
     lessons_learned: list[str]       # specific to this incident, not generic SRE advice
 
 class IncidentOutcome(StrEnum):
-    RESOLVED = "resolved"
+    RESOLVED = "resolved"              # verifier confirmed recovery (no promote)
+    PROMOTED = "promoted"              # verified patch was promoted to prod + recovered
     ESCALATED = "escalated"            # an ESCALATE action actually executed
     EXHAUSTED = "exhausted"            # remediation_plan is None (loop guard)
     REJECTED = "rejected"              # human rejected the fix at the HITL gate
@@ -184,5 +191,12 @@ class IncidentState(TypedDict):
     outcome: NotRequired[IncidentOutcome | None]
     human_decision: NotRequired[str]
     human_decision_plan: NotRequired[str]
-    post_mortem: NotRequired[str]   
+    # Phase 16c — promote gate. `human_decision_promote` records the
+    # operator's decision at the post-verify HITL ('approved' / 'rejected').
+    # `promote_completed` flips True once the prod repo has been updated
+    # and the lab service redeployed; finalize uses it to choose
+    # PROMOTED vs plain RESOLVED.
+    human_decision_promote: NotRequired[str]
+    promote_completed: NotRequired[bool]
+    post_mortem: NotRequired[str]
     done: bool

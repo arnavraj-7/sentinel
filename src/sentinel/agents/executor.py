@@ -78,6 +78,30 @@ def human_approval_plan_node(state: IncidentState) -> dict[str, object]:
     return {"human_decision_plan": decision}
 
 
+def human_approval_promote_node(state: IncidentState) -> dict[str, object]:
+    """HITL gate #3 (Phase 16c) — approve pushing a sandbox-verified
+    commit to the prod repo. Entered ONLY after code_patch returns
+    outcome='verified'. Payload includes the verified PatchReport so the
+    operator can review the diff before authorising the push. Pure by
+    construction."""
+    log.info("human_approval_promote.run", incident_id=state["incident_id"])
+    cpr = state.get("code_patch_result")
+    if cpr is None or cpr.last_report is None:
+        raise RuntimeError("human_approval_promote_node entered without a verified patch")
+
+    decision = _human_approval({
+        "stage": "promote",
+        "commit_sha": cpr.last_report.commit_sha,
+        "files_touched": cpr.last_report.files_touched,
+        "summary": cpr.last_report.summary,
+        "verifier_verdict": (
+            cpr.last_verification.description if cpr.last_verification else None
+        ),
+        "attempts": cpr.attempts,
+    })
+    return {"human_decision_promote": decision}
+
+
 
 async def execute_step(step: RemediationStep, ds: object, service: str) -> StepResult:
     """Deterministic dispatch on the planned action. No LLM here — the planner
@@ -184,25 +208,17 @@ async def executor_node(state: IncidentState) -> dict[str, object]:
     return delta
 
 def after_step_routing(state: IncidentState) -> str:
-    """Shared step-router (Phase 14a). Called from THREE places:
-      - after executor (per-step loop continues)
-      - after code_patch (sub-graph returned; advance to next step)
-      - after human_approval_plan, on approve (dispatch step 0 correctly —
-        a plan that starts with APPLY_CODE_PATCH would otherwise hit executor
-        and crash; see after_human_plan_routing's delegation below).
+    """Shared step-router (Phase 14a, extended in Phase 16c).
 
-    The name is `after_step_routing`, not `after_executor_routing`, because
-    the unit it routes on is one PLAN STEP — independent of which node just
-    produced it. Naming it after the executor would conflate the trigger
-    with the responsibility.
-
-    Decisions (in order):
+    Decisions, in order:
       - no plan / empty results  → finalize
       - last step was critical+failed → planner (replan)
-      - last step was ESCALATE → finalize (we honoured the escalate)
-      - next_step_index past the end → verifier (prod-verify the remediation)
-      - next step is APPLY_CODE_PATCH → code_patch (sub-graph dispatch)
-      - next step is anything else → executor (per-step loop continues)
+      - last step was ESCALATE → finalize
+      - code_patch JUST returned verified AND promote not yet handled
+        → human_approval_promote (Phase 16c)
+      - next_step_index past the end → verifier (prod-verify)
+      - next step is APPLY_CODE_PATCH → code_patch
+      - next step is anything else → executor
     """
     plan = state.get("remediation_plan")
     if plan is None:
@@ -211,23 +227,36 @@ def after_step_routing(state: IncidentState) -> str:
     results = state.get("executor_result") or []
     if results:
         last = results[-1]
-        # Critical-fail on the most recent step → replan
         if not last.ok and last.step.critical:
-            log.info("after_executor.critical_failure_replan",
+            log.info("after_step.critical_failure_replan",
                      incident_id=state["incident_id"])
             return "planner"
-        # An ESCALATE step actually ran → finalize, don't keep going
         if last.step.remediation_action == RemediationAction.ESCALATE:
             return "finalize"
+
+    # Phase 16c — synthetic promote gate. After code_patch returns
+    # `verified`, gate the operator before pushing the commit to prod.
+    # `human_decision_promote` is set when they decide; `promote_completed`
+    # is set after the promote_node actually runs. Until both are set,
+    # this branch holds — independent of what the next plan step is.
+    cpr = state.get("code_patch_result")
+    if cpr is not None and cpr.outcome == "verified":
+        decision = state.get("human_decision_promote")
+        if decision is None:
+            return "human_approval_promote"
+        if decision == "rejected":
+            return "finalize"
+        # decision == "approved" — has promote actually run yet?
+        if not state.get("promote_completed"):
+            return "promote"
+        # Promote done; fall through to the regular per-step dispatch.
 
     next_step_index = state.get("next_step_index", 0)
     steps = plan.remediation_steps
 
-    # Done with this plan → prod-verify (Phase 12 verifier reused for prod recovery)
     if next_step_index >= len(steps):
         return "verifier"
 
-    # Peek at the NEXT step to dispatch
     next_step = steps[next_step_index]
     if next_step.remediation_action == RemediationAction.APPLY_CODE_PATCH:
         return "code_patch"
@@ -251,4 +280,17 @@ def after_human_plan_routing(state: IncidentState) -> str:
         log.info("after_human_plan.approved", incident_id=state["incident_id"])
         return after_step_routing(state)   # shared dispatch — handles step 0 = APPLY_CODE_PATCH
     log.info("after_human_plan.rejected", incident_id=state["incident_id"])
+    return "finalize"
+
+
+def after_human_promote_routing(state: IncidentState) -> str:
+    """Phase 16c — promote gate: approved → promote_node; rejected → finalize.
+    The shared `after_step_routing` already knows how to interpret these
+    state values, but this dedicated router runs RIGHT after the HITL
+    node — no need to walk the full step-routing logic just to dispatch
+    to promote/finalize."""
+    if state.get("human_decision_promote") == "approved":
+        log.info("after_human_promote.approved", incident_id=state["incident_id"])
+        return "promote"
+    log.info("after_human_promote.rejected", incident_id=state["incident_id"])
     return "finalize"

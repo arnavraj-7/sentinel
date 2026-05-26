@@ -24,14 +24,23 @@ final OUTCOME provided. NEVER invent actions — do not claim a rollback/restart
 happened unless it appears in EXECUTED STEPS.
 
   HUMAN-IN-THE-LOOP ATTRIBUTION (mandatory):
-  Sentinel pauses for human approval at two gates: the Root-Cause gate (after RCA) and \
-the Plan gate (after the planner emits a plan containing Dangerous actions). If \
-HUMAN DECISIONS shows "rejected" at either gate, the resolution MUST state PLAINLY \
-that "the operator (human reviewer) rejected the [diagnosis | proposed plan] at the \
-[Root-Cause | Plan] HITL gate; no remediation was applied." Do NOT phrase it \
-passively ("the issue was rejected", "remediation was rejected") — name the actor \
-as the human operator and the gate by name. This distinction matters: a rejected \
-incident means a HUMAN chose not to act, NOT that automated verification failed.
+  Sentinel pauses for human approval at three gates: the Root-Cause gate (after \
+RCA), the Plan gate (when the plan contains Dangerous actions), and the Promote \
+gate (Phase 16c — after a code_patch returns 'verified', before the sandbox commit \
+is pushed to prod). If HUMAN DECISIONS shows "rejected" at any gate, the resolution \
+MUST state PLAINLY that "the operator (human reviewer) rejected the [diagnosis | \
+proposed plan | verified patch promotion] at the [Root-Cause | Plan | Promote] \
+HITL gate; no [remediation was applied | code was deployed]." Do NOT phrase it \
+passively ("the issue was rejected") — name the actor as the human operator and \
+the gate by name. This distinction matters: a rejected incident means a HUMAN \
+chose not to act, NOT that automated verification failed.
+
+  PROMOTE ATTRIBUTION (mandatory when the code-patch sub-graph ran):
+  If CODE PATCH shows outcome 'verified' AND 'promoted: yes', the resolution must \
+state "Claude Code produced a verified patch (commit X), the operator approved \
+promotion at the Promote HITL gate, and the patch was deployed to prod." If \
+verified but NOT promoted, state "patch was verified in the sandbox but not \
+promoted to prod" with the reason (operator rejected vs sub-graph failed).
 
   If FINAL OUTCOME is exhausted/empty_plan_defect after multiple plans, attribute that \
 to the planner reaching its retry limit — never to the human.
@@ -119,10 +128,13 @@ async def post_mortem_node(state: IncidentState) -> dict[str, object]:
     triager = state.get("triager_findings")
     rca = state.get("root_cause_findings")
     critique = state.get("critique")
-    # Both HITL gates separately — Phase 17 surfaces the plan gate so the
+    # Three HITL gates separately — Phase 17 surfaces all of them so the
     # post-mortem can attribute rejection to the operator at the right stage.
-    decision_rca  = state.get("human_decision",       "not reached")
-    decision_plan = state.get("human_decision_plan",  "not reached")
+    decision_rca     = state.get("human_decision",          "not reached")
+    decision_plan    = state.get("human_decision_plan",     "not reached")
+    decision_promote = state.get("human_decision_promote",  "not reached")
+    promote_completed = state.get("promote_completed", False)
+    cpr = state.get("code_patch_result")
     outcome = state.get("outcome")
     outcome_str = outcome.value if outcome is not None else "unknown"
     executor_text = "\n".join(
@@ -156,6 +168,13 @@ CRITIC VERDICT: {'APPROVED' if critique and critique.approved else 'REJECTED'}
 HUMAN DECISIONS (operator at the HITL gates):
   - Root-Cause gate : {decision_rca}
   - Plan gate       : {decision_plan}
+  - Promote gate    : {decision_promote}
+
+CODE PATCH (sub-graph result):
+  - outcome        : {cpr.outcome if cpr else 'no code patch attempted'}
+  - attempts       : {cpr.attempts if cpr else 0}
+  - commit         : {cpr.last_report.commit_sha[:8] if (cpr and cpr.last_report and cpr.last_report.commit_sha) else 'n/a'}
+  - promoted       : {'yes' if promote_completed else 'no'}
 
 EXECUTED STEPS (what the executor ACTUALLY ran — describe ONLY these in resolution):
 {executor_text}

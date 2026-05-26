@@ -9,8 +9,13 @@ def finalize_node(state: IncidentState) -> dict[str, object]:
     """
     log.info("finalize", incident_id=state["incident_id"])
 
-    # 1. Human rejected at the HITL gate — no remediation was attempted.
-    if state.get("human_decision") == "rejected" or state.get("human_decision_plan") == "rejected":
+    # 1. Human rejected at any HITL gate — no further remediation was applied.
+    #    Includes Phase 16c's promote gate.
+    if (
+        state.get("human_decision") == "rejected"
+        or state.get("human_decision_plan") == "rejected"
+        or state.get("human_decision_promote") == "rejected"
+    ):
         outcome = IncidentOutcome.REJECTED
 
     # 2. Planner exhausted its attempts — remediation_plan is None.
@@ -18,16 +23,25 @@ def finalize_node(state: IncidentState) -> dict[str, object]:
     elif state.get("remediation_plan") is None:
         outcome = IncidentOutcome.EXHAUSTED
 
-    # 3. Escalated — an ESCALATE action ACTUALLY executed (check what ran,
-    #    not what was planned: a critical-fail break may skip a trailing
-    #    escalate step, so the plan can contain one that never ran).
+    # 3. Escalated — an ESCALATE action ACTUALLY executed.
     elif any(
         r.step.remediation_action == RemediationAction.ESCALATE
         for r in state.get("executor_result") or []
     ):
         outcome = IncidentOutcome.ESCALATED
 
-    # 4. Resolved — verifier confirmed recovery (guard: verification may be None).
+    # 4a. Promoted — verified patch was pushed to prod AND verifier confirmed
+    #     recovery. Distinct from plain RESOLVED to make the post-mortem
+    #     specific: "we deployed code, not just restarted."
+    elif (
+        state.get("promote_completed")
+        and (v := state.get("verification")) is not None
+        and v.verified
+    ):
+        outcome = IncidentOutcome.PROMOTED
+
+    # 4b. Resolved — verifier confirmed recovery via non-promote remediation
+    #     (heal / restart / scale / rollback).
     elif (v := state.get("verification")) is not None and v.verified:
         outcome = IncidentOutcome.RESOLVED
 

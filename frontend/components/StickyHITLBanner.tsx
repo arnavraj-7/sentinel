@@ -13,6 +13,7 @@ import {
   ChevronDown,
   ChevronUp,
   ListChecks,
+  Rocket,
   UserCheck,
   X,
 } from "lucide-react";
@@ -42,12 +43,18 @@ export function StickyHITLBanner({
 }) {
   // Expanded by default — the user shouldn't have to click 'Details' to
   // see what they're being asked to approve. Re-expand on every new gate
-  // (paused.stage transitions root_cause → plan etc.).
+  // (paused.stage transitions root_cause → plan → promote).
   const [expanded, setExpanded] = useState(true);
   useEffect(() => { setExpanded(true); }, [paused.stage]);
   const isRCA = paused.stage === "root_cause";
-  const Icon = isRCA ? Brain : ListChecks;
+  const isPromote = paused.stage === "promote";
+  const Icon = isRCA ? Brain : isPromote ? Rocket : ListChecks;
   const stepCount = paused.all_steps?.length ?? 0;
+  const stageLabel = isRCA ? "Root Cause" : isPromote ? "Promote to Prod" : "Plan";
+  const stageSubtitle =
+    isRCA    ? "Review the diagnosed root cause before remediation is planned"
+  : isPromote ? `Push verified commit ${paused.commit_sha?.slice(0, 8) ?? "?"} to prod + redeploy`
+  :             `Plan contains ${stepCount} step${stepCount === 1 ? "" : "s"} — at least one is Dangerous`;
 
   return (
     <motion.div
@@ -70,13 +77,11 @@ export function StickyHITLBanner({
             </span>
             <span className="rounded-full bg-warning/20 px-2 py-0.5 font-mono text-[9px] uppercase tracking-wide text-warning">
               <Icon className="-mt-0.5 mr-1 inline" size={10} strokeWidth={2.5} />
-              {isRCA ? "Root Cause" : "Plan"}
+              {stageLabel}
             </span>
           </div>
           <p className="mt-0.5 truncate text-xs text-fg-muted">
-            {isRCA
-              ? "Review the diagnosed root cause before remediation is planned"
-              : `Plan contains ${stepCount} step${stepCount === 1 ? "" : "s"} — at least one is Dangerous`}
+            {stageSubtitle}
           </p>
         </div>
         <button
@@ -135,6 +140,8 @@ export function StickyHITLBanner({
             <div className="border-t border-warning/30 bg-warning/[0.02] px-4 py-3">
               {isRCA
                 ? <RCADetails paused={paused} />
+                : isPromote
+                ? <PromoteDetails paused={paused} />
                 : <PlanDetails paused={paused} />}
             </div>
           </motion.div>
@@ -171,6 +178,44 @@ function PlanDetails({ paused }: { paused: PausedPayload }) {
       {(paused.all_steps ?? []).map((step, idx) => (
         <StepLine key={idx} step={step} index={idx + 1} />
       ))}
+    </div>
+  );
+}
+
+function PromoteDetails({ paused }: { paused: PausedPayload }) {
+  return (
+    <div className="space-y-3 text-sm">
+      <Field label="Commit">
+        <p className="font-mono text-fg">
+          {paused.commit_sha?.slice(0, 12) ?? "—"}
+          {paused.attempts != null && (
+            <span className="ml-2 font-mono text-[10px] text-fg-subtle">
+              ({paused.attempts} attempt{paused.attempts === 1 ? "" : "s"})
+            </span>
+          )}
+        </p>
+      </Field>
+      {paused.files_touched && paused.files_touched.length > 0 && (
+        <Field label="Files touched">
+          <ul className="space-y-0.5">
+            {paused.files_touched.map(f => (
+              <li key={f} className="font-mono text-xs text-fg">{f}</li>
+            ))}
+          </ul>
+        </Field>
+      )}
+      {paused.summary && (
+        <Field label="CC summary">
+          <p className="whitespace-pre-wrap text-xs text-fg">{paused.summary}</p>
+        </Field>
+      )}
+      {paused.verifier_verdict && (
+        <Field label="Verifier verdict">
+          <pre className="whitespace-pre-wrap rounded-md border border-line bg-bg p-2 font-mono text-[11px] text-fg">
+            {paused.verifier_verdict}
+          </pre>
+        </Field>
+      )}
     </div>
   );
 }

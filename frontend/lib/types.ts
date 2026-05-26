@@ -105,12 +105,20 @@ export type CustomEvent = {
 };
 
 export type PausedPayload = {
-  stage: "root_cause" | "plan" | string;
+  stage: "root_cause" | "plan" | "promote" | string;
+  // Stage = root_cause
   root_cause?: string;
   recommended_fix?: string;
   confidence?: number;
+  // Stage = plan
   dangerous_steps?: RemediationStep[];
   all_steps?: RemediationStep[];
+  // Stage = promote (Phase 16c)
+  commit_sha?: string;
+  files_touched?: string[];
+  summary?: string;
+  verifier_verdict?: string | null;
+  attempts?: number;
 };
 
 export type DonePayload = {
